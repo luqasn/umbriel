@@ -67,47 +67,22 @@ namespace umbriel {
       };
     }
 
-    struct NamedScrollingColumnPlacement {
-      size_t column = 0;
-      int row = 0;
-    };
+    using NamedScrollingColumnPlacement = ScrollingLayout::NamedColumnPlacement;
+
+    ScrollingLayout::NamedColumnFacts namedScrollingColumnFacts(const View* view) {
+      if (view == nullptr || !view->namedScrollingColumnName()) {
+        return {};
+      }
+      return {
+          .name = std::string_view(*view->namedScrollingColumnName()),
+          .order = view->namedScrollingColumnOrder(),
+      };
+    }
 
     std::optional<NamedScrollingColumnPlacement> namedScrollingColumnPlacement(
         const ScrollingLayout& layout, const View* joining, std::string_view name, std::optional<int> order
     ) {
-      if (name.empty()) {
-        return std::nullopt;
-      }
-      const auto& columns = layout.columns();
-      for (size_t columnIndex = 0; columnIndex < columns.size(); ++columnIndex) {
-        const Column& column = columns[columnIndex];
-        const auto anchor = std::ranges::find_if(column.views, [&](const View* existing) {
-          return existing != joining
-              && existing->namedScrollingColumnName()
-              && *existing->namedScrollingColumnName() == name;
-        });
-        if (anchor == column.views.end()) {
-          continue;
-        }
-
-        const auto before = order
-            ? std::ranges::find_if(
-                  column.views,
-                  [&](const View* existing) {
-                    const std::optional<int> existingOrder = existing->namedScrollingColumnOrder();
-                    return existing != joining
-                        && existing->namedScrollingColumnName()
-                        && *existing->namedScrollingColumnName() == name
-                        && (!existingOrder || *existingOrder > *order);
-                  }
-              )
-            : column.views.end();
-        return NamedScrollingColumnPlacement{
-            .column = columnIndex,
-            .row = static_cast<int>(std::distance(column.views.begin(), before)),
-        };
-      }
-      return std::nullopt;
+      return layout.namedColumnPlacement(joining, name, order, namedScrollingColumnFacts);
     }
 
     // Ordered members join the tab group at their insertion row, including either boundary.
@@ -745,6 +720,7 @@ namespace umbriel {
         || !view->mapped()
         || !view->tiled()
         || scrolling == nullptr
+        || scrolling->singleGroup()
         || !view->namedScrollingColumnName()) {
       return;
     }
@@ -2152,6 +2128,9 @@ namespace umbriel {
   }
 
   bool Workspace::moveFocusedColumn(int direction) {
+    if (ScrollingLayout* scrolling = scrollingLayout(); scrolling != nullptr && scrolling->singleGroup()) {
+      return false;
+    }
     // Dwindle has no columns to carry, so a column move is the window move.
     if (dwindleLayout() != nullptr) {
       return (m_focusedView == nullptr || !m_focusedView->floating()) && moveFocusedHorizontal(direction);
@@ -2184,6 +2163,9 @@ namespace umbriel {
   }
 
   bool Workspace::moveFocusedColumnFirst() {
+    if (ScrollingLayout* scrolling = scrollingLayout(); scrolling != nullptr && scrolling->singleGroup()) {
+      return false;
+    }
     if (m_focusedView == nullptr) {
       return false;
     }
@@ -2198,6 +2180,9 @@ namespace umbriel {
   }
 
   bool Workspace::moveFocusedColumnLast() {
+    if (ScrollingLayout* scrolling = scrollingLayout(); scrolling != nullptr && scrolling->singleGroup()) {
+      return false;
+    }
     if (m_focusedView == nullptr) {
       return false;
     }
@@ -2237,6 +2222,9 @@ namespace umbriel {
       const double current = presetSnappedFraction(presets, (*axis)[0], (*axis)[1]);
       return resizeFocusedFloating(nextFractionPreset(presets, current, direction), std::nullopt);
     }
+    if (ScrollingLayout* scrolling = scrollingLayout(); scrolling != nullptr && scrolling->singleGroup()) {
+      return false;
+    }
     if (m_focusedView != nullptr && m_focusedView->maximizedToEdges()) {
       m_focusedView->setMaximizedToEdges(false);
     }
@@ -2260,6 +2248,9 @@ namespace umbriel {
       const double current = presetSnappedFraction(presets, (*axis)[0], (*axis)[1]);
       return resizeFocusedFloating(std::nullopt, nextFractionPreset(presets, current, direction));
     }
+    if (ScrollingLayout* scrolling = scrollingLayout(); scrolling != nullptr && scrolling->singleGroup()) {
+      return false;
+    }
     if (m_focusedView != nullptr && m_focusedView->maximizedToEdges()) {
       m_focusedView->setMaximizedToEdges(false);
     }
@@ -2280,6 +2271,9 @@ namespace umbriel {
     if (m_focusedView != nullptr && m_focusedView->floating()) {
       return resizeFocusedFloating(std::clamp(fraction, 0.1, 1.0), std::nullopt);
     }
+    if (ScrollingLayout* scrolling = scrollingLayout(); scrolling != nullptr && scrolling->singleGroup()) {
+      return false;
+    }
     if (m_focusedView != nullptr && m_focusedView->maximizedToEdges()) {
       m_focusedView->setMaximizedToEdges(false);
     }
@@ -2296,6 +2290,9 @@ namespace umbriel {
   bool Workspace::setFocusedHeight(double fraction) {
     if (m_focusedView != nullptr && m_focusedView->floating()) {
       return resizeFocusedFloating(std::nullopt, std::clamp(fraction, 0.1, 1.0));
+    }
+    if (ScrollingLayout* scrolling = scrollingLayout(); scrolling != nullptr && scrolling->singleGroup()) {
+      return false;
     }
     if (m_focusedView != nullptr && m_focusedView->maximizedToEdges()) {
       m_focusedView->setMaximizedToEdges(false);

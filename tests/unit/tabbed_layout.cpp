@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <string_view>
 extern "C" {
 #include <wlr/util/box.h>
 #include <wlr/util/edges.h>
@@ -960,6 +961,28 @@ UMBRIEL_TEST(arrivalsJoinOneFullAreaGroup) {
   CHECK(umbriel::tabGroupOf(fixture.column(), stub(4)) != nullptr);
   CHECK(umbriel::tabGroupOf(fixture.column(), stub(5)) != nullptr);
   CHECK_EQ(fixture.column().tabs.unitCount(fixture.column().views.size()), size_t{1});
+}
+
+UMBRIEL_TEST(theNamedColumnLookupYieldsNothingInASingleGroup) {
+  const auto facts = [](const View* view) -> ScrollingLayout::NamedColumnFacts {
+    if (view == stub(0) || view == stub(1)) {
+      return {.name = std::string_view("browser"), .order = std::nullopt};
+    }
+    return {};
+  };
+  ScrollingFixture strip;
+  strip.layout.insertView(stub(0), 0);
+  strip.layout.insertView(stub(1), 1);
+  const std::optional<ScrollingLayout::NamedColumnPlacement> placement =
+      strip.layout.namedColumnPlacement(stub(9), "browser", std::nullopt, facts);
+  CHECK(placement.has_value());
+  CHECK_EQ(placement->column, size_t{0});
+  CHECK_EQ(placement->row, 1);
+
+  SingleGroupFixture group;
+  group.open(2);
+  CHECK(!group.layout.namedColumnPlacement(stub(9), "browser", std::nullopt, facts));
+  CHECK(!group.layout.namedColumnPlacement(stub(9), "browser", 10, facts));
 }
 
 UMBRIEL_TEST(aSingleGroupFillsTheContentArea) {

@@ -3,7 +3,10 @@
 #include "layout/layout.h"
 
 #include <array>
+#include <functional>
 #include <optional>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 struct wlr_box;
@@ -35,7 +38,27 @@ namespace umbriel {
     int columnWidth(int columnIndex, int viewportPrimary) const;
     bool setWidthFromPixels(int columnIndex, int viewportPrimary, int width);
     bool isFullWidth(int columnIndex) const override;
-    int maxScroll(int viewportPrimary) const { return std::max(0, totalWidth(viewportPrimary) - viewportPrimary); }
+    // Whether this workspace keeps every tiled window in one group filling the layout area.
+    bool singleGroup() const;
+
+    struct NamedColumnPlacement {
+      size_t column = 0;
+      int row = 0;
+    };
+    // Reads the name and order a view carries. The Workspace supplies it because layout/ treats View as opaque.
+    struct NamedColumnFacts {
+      std::optional<std::string_view> name;
+      std::optional<int> order;
+    };
+    using NamedColumnFactsFn = std::function<NamedColumnFacts(const View*)>;
+    // Where a view called `name` would join: the column holding an existing member, before the first member ordered
+    // after `order`. Nothing in a single-group workspace, which has no named column.
+    std::optional<NamedColumnPlacement> namedColumnPlacement(
+        const View* joining, std::string_view name, std::optional<int> order, const NamedColumnFactsFn& facts
+    ) const;
+    int maxScroll(int viewportPrimary) const {
+      return singleGroup() ? 0 : std::max(0, totalWidth(viewportPrimary) - viewportPrimary);
+    }
     // Scroll offsets where a strip gesture can rest on `columnIndex`: flush with the viewport's leading and trailing
     // edges, within [0, maxScroll]. A column at least as wide as the viewport (fullscreen, maximize-to-edges) overhangs
     // it by an edge pad on each side, so both are the offset covering the viewport, as ensureVisible places it.
@@ -126,7 +149,6 @@ namespace umbriel {
 
     int totalWidth(int viewportPrimary) const;
     int rawTotalWidth(int viewportPrimary) const;
-    bool singleGroup() const;
     // Adds `view` to the single column's tab group, at `row` when it lies inside the group, else where new tabs go.
     bool joinSingleGroup(View* view, std::optional<size_t> row);
     // Gives the single group the whole content area, less its bar.
