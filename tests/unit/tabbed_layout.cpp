@@ -288,6 +288,109 @@ UMBRIEL_TEST(dropsOnAScrollingBarLandAmongItsShownTabs) {
   CHECK_EQ(umbriel::tabBarDropAt(400, 24, 2, strip, 6, 40.0).boundary, 26);
 }
 
+UMBRIEL_TEST(aDropOnASingleGroupsBarLandsBetweenItsSlots) {
+  // Four 100-pixel slots across a bar at (100, 200), 400 wide and 24 tall.
+  const umbriel::TabBarDropArea bar{
+      .x = 100,
+      .y = 200,
+      .width = 400,
+      .height = 24,
+      .across = true,
+      .gap = 0,
+      .strip = {.first = 0, .count = 4},
+      .tabs = 4,
+  };
+  const umbriel::TabGroupRows rows{.first = 5, .count = 4, .active = 6};
+  // The trailing half of the first slot inserts after tab 5; the trailing half of the last, after tab 8.
+  CHECK_EQ(umbriel::singleGroupDropRow(bar, rows, 170.0, 224.0), size_t{6});
+  CHECK_EQ(umbriel::singleGroupDropRow(bar, rows, 480.0, 224.0), size_t{9});
+  // Half the bar's thickness again on either side still means the bar.
+  CHECK_EQ(umbriel::singleGroupDropRow(bar, rows, 170.0, 188.0), size_t{6});
+  CHECK_EQ(umbriel::singleGroupDropRow(bar, rows, 170.0, 234.0), size_t{6});
+  // Further from it than that, the point no longer names a slot.
+  CHECK_EQ(umbriel::singleGroupDropRow(bar, rows, 170.0, 170.0), size_t{9});
+}
+
+UMBRIEL_TEST(aDropOnASingleGroupsMiddleJoinsWhereNewTabsGo) {
+  const umbriel::TabBarDropArea bar{
+      .x = 100,
+      .y = 200,
+      .width = 400,
+      .height = 24,
+      .across = true,
+      .gap = 0,
+      .strip = {.first = 0, .count = 4},
+      .tabs = 4,
+  };
+  // Away from the bar every point takes the new-tab position: the group's end, or after the shown tab when configured.
+  CHECK_EQ(umbriel::singleGroupDropRow(bar, {.first = 5, .count = 4, .active = 6}, 300.0, 500.0), size_t{9});
+  CHECK_EQ(
+      umbriel::singleGroupDropRow(bar, {.first = 5, .count = 4, .active = 6, .afterActive = true}, 300.0, 500.0),
+      size_t{7}
+  );
+  // With the shown tab already last, either rule lands at the end.
+  CHECK_EQ(
+      umbriel::singleGroupDropRow(bar, {.first = 5, .count = 4, .active = 8, .afterActive = true}, 300.0, 500.0),
+      size_t{9}
+  );
+  // A group whose bar is not drawn takes every point at the new-tab position.
+  CHECK_EQ(
+      umbriel::singleGroupDropRow({.across = true}, {.first = 5, .count = 4, .active = 6}, 170.0, 224.0), size_t{9}
+  );
+  CHECK_EQ(
+      umbriel::singleGroupDropRow(
+          {.across = true}, {.first = 5, .count = 4, .active = 6, .afterActive = true}, 170.0, 224.0
+      ),
+      size_t{7}
+  );
+}
+
+UMBRIEL_TEST(aDropOnASingleGroupsEdgesJoinsWhereNewTabsGo) {
+  const umbriel::TabBarDropArea bar{
+      .x = 100,
+      .y = 200,
+      .width = 400,
+      .height = 24,
+      .across = true,
+      .gap = 0,
+      .strip = {.first = 0, .count = 4},
+      .tabs = 4,
+  };
+  const umbriel::TabGroupRows rows{.first = 5, .count = 4, .active = 6};
+  // The group's bottom edge, either primary edge, and its corners all join at the new-tab position rather than beside
+  // the group or in a strip gap.
+  CHECK_EQ(umbriel::singleGroupDropRow(bar, rows, 300.0, 700.0), size_t{9});
+  CHECK_EQ(umbriel::singleGroupDropRow(bar, rows, 102.0, 500.0), size_t{9});
+  CHECK_EQ(umbriel::singleGroupDropRow(bar, rows, 498.0, 500.0), size_t{9});
+  CHECK_EQ(umbriel::singleGroupDropRow(bar, rows, 100.0, 500.0), size_t{9});
+  CHECK_EQ(umbriel::singleGroupDropRow(bar, rows, 480.0, 500.0), size_t{9});
+  // A bar down the group's left edge reads the point down it and leaves the rest to the new-tab position.
+  const umbriel::TabBarDropArea side{
+      .x = 100,
+      .y = 200,
+      .width = 24,
+      .height = 400,
+      .across = false,
+      .gap = 0,
+      .strip = {.first = 0, .count = 4},
+      .tabs = 4,
+  };
+  CHECK_EQ(umbriel::singleGroupDropRow(side, rows, 112.0, 380.0), size_t{7});
+  CHECK_EQ(umbriel::singleGroupDropRow(side, rows, 300.0, 380.0), size_t{9});
+}
+
+UMBRIEL_TEST(aDropHintMarksTheSlotItJoinsFromTheBarsLeadingEdge) {
+  const umbriel::TabStrip all{.first = 0, .count = 4};
+  for (size_t row = 0; row <= 4; ++row) {
+    CHECK_EQ(umbriel::tabBarDropBoundary(400, 24, 0, all, 4, row), static_cast<int>(row) * 100);
+  }
+  // A bar showing two of six tabs marks its own ends for positions outside the strip.
+  const umbriel::TabStrip strip{.first = 2, .count = 2};
+  CHECK_EQ(umbriel::tabBarDropBoundary(400, 24, 2, strip, 6, 2), 26);
+  CHECK_EQ(umbriel::tabBarDropBoundary(400, 24, 2, strip, 6, 4), 374);
+  CHECK_EQ(umbriel::tabBarDropBoundary(400, 24, 2, strip, 6, 9), 374);
+}
+
 // tab groups
 UMBRIEL_TEST(groupsFollowRowsInsertedAndErasedAroundThem) {
   ColumnTabs tabs;
