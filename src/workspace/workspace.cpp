@@ -2450,6 +2450,11 @@ namespace umbriel {
     if (column < 0) {
       return false;
     }
+    if (isSingleGroup()) {
+      // The group already fills the layout area, so only the state changes; a width toggle would refuse.
+      m_focusedView->toggleMaximized();
+      return true;
+    }
     const bool fullWidth = m_layout->toggleFullWidth(column);
     m_focusedView->setMaximizedState(fullWidth);
     reevaluateFocusedColumn();
@@ -2815,6 +2820,11 @@ namespace umbriel {
     m_layout->setConstraints(&viewLayoutConstraints);
     for (View* view : tiledViews) {
       m_layout->insertView(view, static_cast<int>(m_layout->columns().size()));
+    }
+    if (ScrollingLayout* scrolling = scrollingLayout(); isSingleGroup()) {
+      // Replaying the members through insertion shows the first one. Collapse again so the mode switch and a config
+      // reload both leave the previously focused window as the active tab.
+      scrolling->collapseToSingleGroup(m_focusedView);
     }
     if (fromStacking) {
       const auto floats = m_floatingStack;
