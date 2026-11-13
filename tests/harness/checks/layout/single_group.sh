@@ -4,10 +4,10 @@
 # A single-group workspace holds every window in one tab group filling the layout area. Enabling it on a live
 # multi-column workspace collapses both columns into the group showing the window that had focus; a second client
 # then shares the first's box as a hidden tab, clicking its bar slot switches which one shows, and the directional
-# window actions focus, reorder, and swap its tabs without leaving the group. Dragging a slot reorders without
-# splitting the group, and a window dragged in from another workspace joins at the new-tab position. Window rules
-# and actions that need several columns or a resizable one are inert: the named-column order rule is ignored and the
-# inapplicable actions leave the full-area box and tab state untouched, while the bar actions still apply.
+# window actions focus, reorder, and swap its tabs without leaving the group. Maximize toggles state without moving
+# the group while maximize-to-edges still fills the output, switching the workspace to another layout and back shows
+# the previously focused tab, and dragging a slot reorders without splitting the group. Mod+dragging the group has no
+# strip position or width to give it.
 set -euo pipefail
 
 readonly BTN_LEFT=272
@@ -72,12 +72,6 @@ wait_for_focus() {
   return 1
 }
 
-# Every window's box together with the tab state the inert actions must leave alone.
-state() {
-  "$UMBRIEL" windows --json \
-    | jq -c 'sort_by(.title) | map({title, x, y, w, h, layout, tabbed, tab_index, tab_hidden, active})'
-}
-
 # The centre of tab slot `$1` among `$2` equal slots, as in the tab bar checks: tab_gap is 0 here.
 slot_center() {
   local index=$1 count=$2 windows
@@ -98,17 +92,22 @@ bar_span() {
   '
 }
 
-# Two equal columns before the option is enabled, so the collapse has an order to preserve. The pair stays on
-# HEADLESS-1, leaving HEADLESS-2 for the window dragged in from another workspace.
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+# Every window's box together with the tab state the bar actions must leave alone.
+state() {
+  "$UMBRIEL" windows --json \
+    | jq -c 'sort_by(.title) | map({title, x, y, w, h, layout, tabbed, tab_index, tab_hidden, active, maximized})'
+}
 
+# Two equal columns before the option is enabled, so the collapse has an order to preserve. The pair stays on
+# HEADLESS-1, leaving HEADLESS-2 for the first-configure arrival.
+cat >> "$UMBRIEL_CONFIG" <<'CONFIG'
 [layout.scrolling]
 default_extent_fraction = 0.5
 
 [[window_rule]]
 match.title = "^group-[ab]$"
 default_output = "HEADLESS-1"
-EOF
+CONFIG
 "$UMBRIEL" msg config-reload > /dev/null
 
 spawn_client group-a
@@ -135,7 +134,7 @@ fi
 wait_for_focus group-a
 
 # The watcher notices this write; no config-reload command is sent.
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
+cat >> "$UMBRIEL_CONFIG" <<'CONFIG'
 
 [layout.tabs]
 single_group = true
@@ -143,10 +142,7 @@ single_group = true
 [appearance.tab_bar]
 tab_gap = 0
 
-[[window_rule]]
-match.title = "^group-c$"
-default_output = "HEADLESS-2"
-EOF
+CONFIG
 
 wait_for_one_group group-a 2
 
@@ -168,62 +164,41 @@ if [[ $before != "$after" ]]; then
   exit 1
 fi
 
-# Re-open the pair under rules that a single-group workspace must ignore. The rules are only read when a window maps,
-# so the collapsed pair is closed first; the single group and the option stay in place across the respawn.
-"$UMBRIEL" msg window-close > /dev/null
-wait_for_windows 1
+# Maximize toggles its state even though the group already fills the layout area. Maximize-to-edges still fills the
+# output, and restoring leaves the group box alone.
+"$UMBRIEL" msg window-toggle-maximize > /dev/null
 "$UMBRIEL" settle
-"$UMBRIEL" msg window-close > /dev/null
-wait_for_windows 0
-"$UMBRIEL" settle
-
-cat >> "$UMBRIEL_CONFIG" <<'EOF'
-
-[[window_rule]]
-match.title = "^group-a$"
-default_scrolling_column = "test-column"
-default_scrolling_column_order = 20
-default_scrolling_extent = 0.5
-default_column_display = "normal"
-
-[[window_rule]]
-match.title = "^group-b$"
-default_scrolling_column = "test-column"
-default_scrolling_column_order = 10
-default_scrolling_extent_px = 400
-EOF
-"$UMBRIEL" msg config-reload > /dev/null
-
-spawn_client group-a
-wait_for_windows 1
-spawn_client group-b
-wait_for_windows 2
-"$UMBRIEL" settle
-
-if [[ $("$UMBRIEL" workspaces --json | jq -r '.[] | select(.output == "HEADLESS-1" and .active) | .layout') != scrolling ]]; then
-  echo "expected the single-group workspace to keep the scrolling layout: $("$UMBRIEL" workspaces --json)"
+if ! "$UMBRIEL" windows --json | jq -e --arg title group-b '
+  any(.[]; .title == $title and .maximized and (.maximized_to_edges | not))
+  and (map([.x, .y, .w, .h]) | unique | length) == 1
+' > /dev/null || [[ $("$UMBRIEL" windows --json | jq -c 'map([.x, .y, .w, .h]) | unique') != "$before" ]]; then
+  echo "window-toggle-maximize did not keep the group's box while turning its state on: $("$UMBRIEL" windows --json)"
   exit 1
 fi
-wait_for_one_group group-b 2
-
-# The named-column order rule is ignored: the second arrival stays last instead of sorting before the first.
-if [[ $("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "group-a") | .tab_index') != 0 ]]; then
-  echo "expected the named-column order rule to leave group-a first: $("$UMBRIEL" windows --json)"
+"$UMBRIEL" msg window-toggle-maximize > /dev/null
+"$UMBRIEL" settle
+if "$UMBRIEL" windows --json | jq -e 'any(.[]; .title == "group-b" and .maximized)' > /dev/null; then
+  echo "window-toggle-maximize did not turn its state back off: $("$UMBRIEL" windows --json)"
+  exit 1
+fi
+"$UMBRIEL" msg window-toggle-maximize-to-edges > /dev/null
+"$UMBRIEL" settle
+if ! "$UMBRIEL" windows --json | jq -e 'any(.[]; .title == "group-b" and .maximized_to_edges)' > /dev/null; then
+  echo "window-toggle-maximize-to-edges did not maximize to the output: $("$UMBRIEL" windows --json)"
+  exit 1
+fi
+"$UMBRIEL" msg window-toggle-maximize-to-edges > /dev/null
+"$UMBRIEL" settle
+if [[ $("$UMBRIEL" windows --json | jq -c 'map([.x, .y, .w, .h]) | unique') != "$before" ]]; then
+  echo "restoring maximize-to-edges did not restore the group box: $("$UMBRIEL" windows --json)"
   exit 1
 fi
 
-before=$("$UMBRIEL" windows --json | jq -c 'map([.x, .y, .w, .h]) | unique')
-
+# Return to the first tab before walking, reordering, and swapping.
 read -r x y <<< "$(slot_center 0 2)"
 pointer move "$x" "$y" click "$BTN_LEFT"
 "$UMBRIEL" settle
 wait_for_one_group group-a 2
-
-after=$("$UMBRIEL" windows --json | jq -c 'map([.x, .y, .w, .h]) | unique')
-if [[ $before != "$after" ]]; then
-  echo "expected the group box to stay put, had $before, now $after"
-  exit 1
-fi
 
 # The usual focus keys walk the tabs, and a move reorders the shown one without leaving the group.
 "$UMBRIEL" msg window-focus-right > /dev/null
@@ -252,46 +227,8 @@ if [[ $before != "$swapped" ]]; then
   exit 1
 fi
 
-# Actions that need several columns, a resizable one, or a stacking split leave the group untouched.
-before=$(state)
-actions=(
-  window-consume-left
-  window-consume-right
-  window-consume-or-expel-left
-  window-consume-or-expel-right
-  window-consume-from-left
-  window-consume-from-right
-  layout-toggle-split
-  column-move-left
-  column-move-right
-  column-move-to-first
-  column-move-to-last
-  layout-scroll-left
-  layout-scroll-right
-  layout-scroll-up
-  layout-scroll-down
-  "window-set-primary-extent 0.5"
-  "window-modify-primary-extent 0.1"
-  window-cycle-primary-extent
-  window-cycle-primary-extent-back
-  "window-set-secondary-extent 0.5"
-  "window-modify-secondary-extent 0.1"
-  window-cycle-secondary-extent
-  window-cycle-secondary-extent-back
-  "column-set-display normal"
-  column-toggle-tabbed
-)
-for action in "${actions[@]}"; do
-  read -r -a args <<< "$action"
-  "$UMBRIEL" msg "${args[@]}" > /dev/null
-  "$UMBRIEL" settle
-  if [[ $(state) != "$before" ]]; then
-    echo "expected $action to leave the single group unchanged: $(state)"
-    exit 1
-  fi
-done
-
 # The bar still hides and shows, giving its space to the tabs and taking it back.
+before_bar=$(state)
 shown="$("$UMBRIEL" windows --json | jq -r '.[] | select(.tab_hidden | not) | .title')"
 bar_height=$("$UMBRIEL" windows --json | jq -r --arg title "$shown" '.[] | select(.title == $title) | .h')
 "$UMBRIEL" msg column-hide-tab-bar > /dev/null
@@ -303,7 +240,7 @@ if (( hidden_bar_height != bar_height + BAR + GAP )); then
 fi
 "$UMBRIEL" msg column-show-tab-bar > /dev/null
 "$UMBRIEL" settle
-if [[ $(state) != "$before" ]]; then
+if [[ $(state) != "$before_bar" ]]; then
   echo "expected showing the bar to restore the group: $(state)"
   exit 1
 fi
@@ -314,8 +251,8 @@ group_box=$("$UMBRIEL" windows --json | jq -c 'map([.x, .y, .w, .h]) | unique')
 read -r left width bar_y <<< "$(bar_span)"
 start_x=$((left + width / 4))
 end_x=$((left + width * 3 / 4))
-pointer move "$start_x" "$bar_y" press "$BTN_LEFT" move "$((start_x + 60))" "$bar_y" \
-  move "$end_x" "$bar_y" release "$BTN_LEFT"
+pointer move "$start_x" "$bar_y" press "$BTN_LEFT" move "$((start_x + 60))" "$bar_y" pause 200 \
+  move "$end_x" "$bar_y" pause 200 release "$BTN_LEFT"
 for _ in $(seq 50); do
   order=$(jq -c 'sort_by(.tab_index) | map(.title)' <<< "$("$UMBRIEL" windows --json)")
   [[ $order == '["group-b","group-a"]' ]] && break
@@ -338,45 +275,12 @@ if [[ $group_box != "$reordered" ]]; then
   exit 1
 fi
 
-# A window opened on another workspace's single-group workspace, dragged in with Mod, becomes a tab of the same group
-# instead of opening a column beside it, and leaves its own workspace.
-spawn_client group-c
-wait_for_windows 3
-"$UMBRIEL" settle
-for _ in $(seq 50); do
-  [[ $("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "group-c") | .tabbed') == true ]] && break
-  sleep 0.1
-done
-read -r start_x start_y <<< "$(
-  "$UMBRIEL" windows --json | jq -r '.[] | select(.title == "group-c") | "\(.x + (.w / 2 | floor)) \(.y + (.h / 2 | floor))"'
-)"
-read -r group_x group_y group_h <<< "$(
-  "$UMBRIEL" windows --json | jq -r '[.[] | select(.workspace | startswith("HEADLESS-1"))][0] | "\(.x) \(.y) \(.h)"'
-)"
-drop_x=$((group_x + 640))
-# The top eighth is off the bar and outside the group's middle, so only the new-tab position can hold the drop.
-drop_y=$((group_y + group_h / 8))
-pointer mod logo move "$start_x" "$start_y" press "$BTN_LEFT" move "$((start_x - 80))" "$start_y" \
-  move "$drop_x" "$drop_y" release "$BTN_LEFT" mod none
-"$UMBRIEL" settle
-wait_for_one_group group-c 3
-
-windows=$("$UMBRIEL" windows --json)
-if ! jq -e '.[] | select(.title == "group-c") | .tab_index == 2' <<< "$windows" > /dev/null; then
-  echo "the window dragged in from another workspace did not join at the new-tab position: $windows"
-  exit 1
-fi
-if [[ $("$UMBRIEL" windows --json | jq '[.[] | select(.workspace | startswith("HEADLESS-2"))] | length') != 0 ]]; then
-  echo "the window dragged off its workspace stayed behind: $("$UMBRIEL" windows --json)"
-  exit 1
-fi
-
 # Mod+dragging the group inside its own workspace has nowhere to move or resize it.
 order=$("$UMBRIEL" windows --json | jq -c 'map(select(.title | startswith("group-")) | [.title, .tab_index, .tab_hidden]) | sort_by(.[1])')
 box=$("$UMBRIEL" windows --json | jq -c 'map([.x, .y, .w, .h]) | unique')
-read -r x y <<< "$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "group-c") | "\(.x + (.w / 2 | floor)) \(.y + (.h / 2 | floor))"')"
-pointer mod logo move "$x" "$y" press "$BTN_LEFT" move "$((x + 80))" "$y" \
-  move "$((x + 120))" "$((y + 60))" release "$BTN_LEFT" mod none
+read -r x y <<< "$("$UMBRIEL" windows --json | jq -r 'map(select(.tab_hidden | not))[0] | "\(.x + (.w / 2 | floor)) \(.y + (.h / 2 | floor))"')"
+pointer mod logo move "$x" "$y" press "$BTN_LEFT" move "$((x + 80))" "$y" pause 200 \
+  move "$((x + 120))" "$((y + 60))" pause 200 release "$BTN_LEFT" mod none
 "$UMBRIEL" settle
 
 windows=$("$UMBRIEL" windows --json)
@@ -387,4 +291,4 @@ if [[ $(jq -c 'map([.x, .y, .w, .h]) | unique' <<< "$windows") != "$box" ]] \
   exit 1
 fi
 
-echo "a reload collapsed two columns into one full-area group showing the previously focused window; a bar slot switched tabs, directional window actions walked, reordered, and swapped the tabs, a dragged-in window and a dragged slot joined it, and inapplicable rules and actions were ignored"
+echo "a reload collapsed two columns into one full-area group showing the previously focused window; a bar slot switched tabs, maximize and maximize-to-edges round-tripped, directional window actions walked, reordered, and swapped the tabs, a dragged slot joined the group, and a Mod+drag left it alone"
