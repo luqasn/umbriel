@@ -126,6 +126,11 @@ namespace umbriel {
 
     int totalWidth(int viewportPrimary) const;
     int rawTotalWidth(int viewportPrimary) const;
+    bool singleGroup() const;
+    // Adds `view` to the single column's tab group, at `row` when it lies inside the group, else where new tabs go.
+    bool joinSingleGroup(View* view, std::optional<size_t> row);
+    // Gives the single group the whole content area, less its bar.
+    void arrangeSingleGroup(const wlr_box& usable, int viewportPrimary, int availableCross);
     int centeringOffset(int viewportPrimary) const;
     double centeredScroll(int columnIndex, int viewportPrimary) const;
     double targetScrollForEnsureVisible(int columnIndex, int viewportPrimary, bool center, bool force = false) const;

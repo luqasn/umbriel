@@ -197,6 +197,7 @@ namespace umbriel {
           boolean("wrap_focus", &Tabs::wrapFocus),
           boolean("scroll_switches_tabs", &Tabs::scrollSwitchesTabs),
           boolean("middle_click_closes", &Tabs::middleClickCloses),
+          boolean("single_group", &Tabs::singleGroup),
       };
       static const Fields<L> fields{
           choice("mode", &L::mode, layoutModes()),

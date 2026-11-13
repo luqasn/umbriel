@@ -267,6 +267,15 @@ middle_click_closes = false
 | `wrap_focus`           | `true`     | Wrap `column-focus-tab-next` and `column-focus-tab-previous` at the ends.                                          |
 | `scroll_switches_tabs` | `true`     | Step through tabs with the wheel over the bar.                                                                     |
 | `middle_click_closes`  | `false`    | Close a tab with a middle click on its slot.                                                                       |
+| `single_group`         | `false`    | Keep a scrolling workspace's windows in one tab group filling the layout area.                                     |
+
+### Single-group workspaces
+
+`single_group = true` makes a scrolling workspace hold exactly one tab group that fills the layout area. Every tiled window that arrives joins it as a tab — opened there, moved or dragged in, unfloated, or returned from a scratchpad — and the workspace never grows a second column, a row beside the group, or a strip to scroll. The group stops where any other full tile stops: inside struts and panel exclusive zones, with `gap` and borders applied, and the tab bar takes its space on its configured edge on either workspace axis. New windows join where `new_tab_position` says, and the focused window is the shown tab.
+
+The display is fixed. `column-toggle-tabbed`, `column-set-display normal`, and a window rule's `default_column_display` cannot turn the group into stacked rows; the per-group bar toggle and every other tab action keep working. Width actions, extent presets, and pointer resizes leave the group at its full width, a stacking-axis move reorders its tabs instead of stepping them out, and there is no second column for `expel` to create. A `default_scrolling_column` or extent rule is ignored because there is only one group to place into.
+
+A fullscreen tab that is not shown keeps its fullscreen state without stretching the group, so an arriving window gets a normal tab box; selecting the tab again shows it fullscreen. A tiled arrival therefore hides a fullscreen tab instead of exiting fullscreen, whatever `new_exits_fullscreen` says.
 
 A `[[workspace]]` entry's `layout.tabs` table overrides these keys for that workspace. A window rule's `default_column_display` sets the display of the column a window opens in. See [Tab bar](appearance.md#tab-bar) for the bar's look and space.
 

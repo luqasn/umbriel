@@ -20,6 +20,7 @@ extern "C" {
 using umbriel::Column;
 using umbriel::ColumnDisplay;
 using umbriel::ColumnTabs;
+using umbriel::LayoutConstraints;
 using umbriel::MasterStackLayout;
 using umbriel::NewTabPosition;
 using umbriel::ResolvedLayoutConfig;
@@ -69,6 +70,25 @@ namespace {
     }
 
     const Column& column(int index = 0) const { return layout.columns()[static_cast<size_t>(index)]; }
+  };
+
+  struct SingleGroupFixture {
+    ResolvedLayoutConfig config = tabConfig(umbriel::LayoutMode::Scrolling);
+    ScrollingLayout layout;
+
+    explicit SingleGroupFixture(ScrollingDirection direction = ScrollingDirection::Horizontal) {
+      config.tabs.singleGroup = true;
+      config.scrolling.direction = direction;
+      layout.setConfig(&config);
+    }
+
+    void open(int count) {
+      for (int i = 0; i < count; ++i) {
+        layout.insertView(stub(i), 0);
+      }
+    }
+
+    const Column& column() const { return layout.columns()[static_cast<size_t>(0)]; }
   };
 
   struct MasterFixture {
@@ -919,6 +939,224 @@ UMBRIEL_TEST(enteringATabbedColumnLandsOnItsShownTab) {
   CHECK_EQ(peers.size(), size_t{1});
   CHECK(!peers.empty() && peers.front() == stub(1));
   CHECK_EQ(umbriel::columnEntry(fixture.column()), stub(1));
+}
+
+// single-group workspaces
+UMBRIEL_TEST(arrivalsJoinOneFullAreaGroup) {
+  SingleGroupFixture fixture;
+  fixture.open(3);
+  CHECK_EQ(fixture.layout.columns().size(), size_t{1});
+  CHECK_EQ(fixture.column().views.size(), size_t{3});
+  CHECK_EQ(fixture.column().tabs.groups().size(), size_t{1});
+  CHECK_EQ(fixture.column().tabs.groups().front().count, size_t{3});
+  CHECK_EQ(fixture.column().tabs.unitCount(fixture.column().views.size()), size_t{1});
+  CHECK_EQ(shownTab(fixture.column()), stub(0));
+  // A requested column index cannot add one, and a row insert lands among the tabs.
+  fixture.layout.insertView(stub(3), 7);
+  fixture.layout.insertViewIntoColumn(stub(4), 5, 9);
+  fixture.layout.insertTab(stub(5), 4, 0, stub(0));
+  CHECK_EQ(fixture.layout.columns().size(), size_t{1});
+  CHECK(umbriel::tabGroupOf(fixture.column(), stub(3)) != nullptr);
+  CHECK(umbriel::tabGroupOf(fixture.column(), stub(4)) != nullptr);
+  CHECK(umbriel::tabGroupOf(fixture.column(), stub(5)) != nullptr);
+  CHECK_EQ(fixture.column().tabs.unitCount(fixture.column().views.size()), size_t{1});
+}
+
+UMBRIEL_TEST(aSingleGroupFillsTheContentArea) {
+  for (const auto direction : {ScrollingDirection::Horizontal, ScrollingDirection::Vertical}) {
+    SingleGroupFixture fixture(direction);
+    fixture.open(2);
+    fixture.layout.arrange(kUsable);
+    const wlr_box box = fixture.layout.targetBox(stub(1));
+    CHECK_EQ(box.x, 10);
+    CHECK_EQ(box.y, 10 + kReserve);
+    CHECK_EQ(box.width, 1260);
+    CHECK_EQ(box.height, 700 - kReserve);
+    CHECK(sameBox(fixture.layout.targetBox(stub(0)), box));
+    CHECK_EQ(fixture.layout.widthFraction(0), 1.0);
+    CHECK(fixture.layout.isFullWidth(0));
+  }
+}
+
+UMBRIEL_TEST(aSingleGroupStopsAtStrutsAndGap) {
+  SingleGroupFixture fixture;
+  fixture.config.struts = {.left = 5, .right = 7, .top = 11, .bottom = 13};
+  fixture.open(2);
+  fixture.layout.arrange(umbriel::applyLayoutStruts(kUsable, fixture.config.struts));
+  const wlr_box box = fixture.layout.targetBox(stub(0));
+  CHECK_EQ(box.x, 5 + 10);
+  CHECK_EQ(box.y, 11 + 10 + kReserve);
+  CHECK_EQ(box.width, 1280 - 5 - 7 - 20);
+  CHECK_EQ(box.height, 720 - 11 - 13 - 20 - kReserve);
+}
+
+UMBRIEL_TEST(aSingleGroupReservesOnlyAShownBarAndOnItsEdge) {
+  SingleGroupFixture hidden;
+  hidden.config.tabs.barVisible = false;
+  hidden.open(2);
+  hidden.layout.arrange(kUsable);
+  CHECK_EQ(hidden.layout.targetBox(stub(0)).y, 10);
+  CHECK_EQ(hidden.layout.targetBox(stub(0)).height, 700);
+
+  SingleGroupFixture side;
+  side.config.tabs.barPosition = TabBarPosition::Left;
+  side.open(2);
+  side.layout.arrange(kUsable);
+  const wlr_box box = side.layout.targetBox(stub(0));
+  CHECK_EQ(box.x, 10 + kReserve);
+  CHECK_EQ(box.width, 1260 - kReserve);
+  CHECK_EQ(box.y, 10);
+  CHECK_EQ(box.height, 700);
+}
+
+UMBRIEL_TEST(theFirstConfigureOfASingleGroupMatchesItsArrangedBox) {
+  // The bar is drawn from the first window unless the configuration hides it.
+  SingleGroupFixture shown;
+  const umbriel::Layout::InitialSize first =
+      shown.layout.initialSize(kUsable, false, std::nullopt, std::nullopt, nullptr);
+  shown.open(1);
+  shown.layout.arrange(kUsable);
+  CHECK_EQ(first.width, shown.layout.targetBox(stub(0)).width);
+  CHECK_EQ(first.height, shown.layout.targetBox(stub(0)).height);
+  // A second arrival joins the same box, bar included.
+  const umbriel::Layout::InitialSize second =
+      shown.layout.initialSize(kUsable, false, std::nullopt, std::nullopt, nullptr);
+  shown.layout.insertView(stub(1), 0);
+  shown.layout.arrange(kUsable);
+  CHECK_EQ(second.width, shown.layout.targetBox(stub(1)).width);
+  CHECK_EQ(second.height, shown.layout.targetBox(stub(1)).height);
+
+  // A vertical workspace sizes the first configure along its own axes.
+  SingleGroupFixture vertical(ScrollingDirection::Vertical);
+  const umbriel::Layout::InitialSize verticalFirst =
+      vertical.layout.initialSize(kUsable, false, std::nullopt, std::nullopt, nullptr);
+  vertical.open(1);
+  vertical.layout.arrange(kUsable);
+  CHECK_EQ(verticalFirst.width, vertical.layout.targetBox(stub(0)).width);
+  CHECK_EQ(verticalFirst.height, vertical.layout.targetBox(stub(0)).height);
+
+  // With the bar hidden both sizes are the whole content area.
+  SingleGroupFixture bare;
+  bare.config.tabs.barVisible = false;
+  const umbriel::Layout::InitialSize bareFirst =
+      bare.layout.initialSize(kUsable, false, std::nullopt, std::nullopt, nullptr);
+  bare.open(1);
+  bare.layout.arrange(kUsable);
+  CHECK_EQ(bareFirst.width, 1260);
+  CHECK_EQ(bareFirst.height, 700);
+  CHECK_EQ(bare.layout.targetBox(stub(0)).height, bareFirst.height);
+
+  // hide_when_single: the first configure has no bar, the second arrival brings it.
+  SingleGroupFixture single;
+  single.config.tabs.hideWhenSingle = true;
+  const umbriel::Layout::InitialSize alone =
+      single.layout.initialSize(kUsable, false, std::nullopt, std::nullopt, nullptr);
+  single.open(1);
+  single.layout.arrange(kUsable);
+  CHECK_EQ(alone.height, 700);
+  CHECK_EQ(single.layout.targetBox(stub(0)).height, alone.height);
+  const umbriel::Layout::InitialSize paired =
+      single.layout.initialSize(kUsable, false, std::nullopt, std::nullopt, nullptr);
+  single.layout.insertView(stub(1), 0);
+  single.layout.arrange(kUsable);
+  CHECK_EQ(paired.height, 700 - kReserve);
+  CHECK_EQ(single.layout.targetBox(stub(1)).height, paired.height);
+}
+
+UMBRIEL_TEST(aSingleGroupRefusesEveryExtentChange) {
+  SingleGroupFixture fixture;
+  fixture.open(2);
+  fixture.layout.arrange(kUsable);
+  const wlr_box before = fixture.layout.targetBox(stub(0));
+  CHECK(!fixture.layout.setWidthFraction(0, 0.5));
+  CHECK(!fixture.layout.cycleWidth(0, 1));
+  CHECK(!fixture.layout.toggleFullWidth(0));
+  CHECK(!fixture.layout.setWidthFromPixels(0, 1260, 600));
+  CHECK_EQ(fixture.layout.widthFraction(0), 1.0);
+  CHECK(fixture.layout.isFullWidth(0));
+  CHECK_EQ(fixture.layout.heightFraction(stub(0)), 1.0);
+  CHECK(!fixture.layout.setHeightFraction(stub(0), 0.5));
+  // A clear of the full-width state is a no-op too.
+  fixture.layout.clearFullWidthState(0);
+  fixture.layout.arrange(kUsable);
+  CHECK(sameBox(fixture.layout.targetBox(stub(0)), before));
+  CHECK(fixture.layout.isFullWidth(0));
+}
+
+UMBRIEL_TEST(aSingleGroupRefusesPointerResizing) {
+  SingleGroupFixture fixture;
+  fixture.open(2);
+  fixture.layout.arrange(kUsable);
+  CHECK_EQ(fixture.layout.resizeEdgesAt(stub(0), 1270.0, 700.0), 0U);
+  CHECK_EQ(fixture.layout.sanitizeResizeEdges(stub(0), WLR_EDGE_LEFT | WLR_EDGE_RIGHT), 0U);
+  CHECK(fixture.layout.beginResize(stub(0), WLR_EDGE_RIGHT, kUsable) == nullptr);
+}
+
+UMBRIEL_TEST(unTabbingASingleGroupIsRefusedButItsBarStillToggles) {
+  SingleGroupFixture fixture;
+  fixture.open(2);
+  CHECK(!fixture.layout.setTabbed(stub(0), false));
+  CHECK(!fixture.layout.setTabbed(stub(0), true));
+  CHECK_EQ(fixture.column().tabs.groups().size(), size_t{1});
+  CHECK_EQ(fixture.column().tabs.unitCount(fixture.column().views.size()), size_t{1});
+  fixture.layout.arrange(kUsable);
+  const int tabbedHeight = fixture.layout.targetBox(stub(0)).height;
+  CHECK_EQ(tabbedHeight, 700 - kReserve);
+  CHECK(fixture.layout.setTabBar(stub(0), false));
+  fixture.layout.arrange(kUsable);
+  CHECK_EQ(fixture.layout.targetBox(stub(0)).height, 700);
+  CHECK(!fixture.layout.setTabBar(stub(0), false));
+  CHECK(fixture.layout.setTabBar(stub(0), std::nullopt));
+  fixture.layout.arrange(kUsable);
+  CHECK_EQ(fixture.layout.targetBox(stub(0)).height, tabbedHeight);
+}
+
+UMBRIEL_TEST(aSingleGroupTurnsStackingMovesIntoReordersAndRefusesEscape) {
+  SingleGroupFixture fixture;
+  fixture.open(3);
+  CHECK(fixture.layout.moveViewVertical(stub(0), 1));
+  CHECK_EQ(fixture.layout.rowOf(stub(0)), 1);
+  CHECK(umbriel::tabGroupOf(fixture.column(), stub(0)) != nullptr);
+  CHECK_EQ(fixture.column().tabs.unitCount(fixture.column().views.size()), size_t{1});
+  CHECK(!fixture.layout.moveViewVertical(stub(2), 1));
+  CHECK(!fixture.layout.expel(stub(0), 1));
+  CHECK(!fixture.layout.consume(stub(0), 1));
+  CHECK(!fixture.layout.consumeFrom(stub(0), -1));
+  CHECK_EQ(fixture.layout.columns().size(), size_t{1});
+}
+
+UMBRIEL_TEST(newTabsLandWhereTheConfigurationSays) {
+  SingleGroupFixture appended;
+  appended.open(2);
+  appended.layout.insertView(stub(2), 0);
+  CHECK_EQ(appended.layout.rowOf(stub(2)), 2);
+
+  SingleGroupFixture afterActive;
+  afterActive.config.tabs.newTabPosition = NewTabPosition::AfterActive;
+  afterActive.open(2);
+  afterActive.layout.insertView(stub(2), 0);
+  CHECK_EQ(afterActive.layout.rowOf(stub(2)), 1);
+}
+
+UMBRIEL_TEST(anArrivalWhileATabIsFullscreenGetsANormalTabBox) {
+  SingleGroupFixture fixture;
+  fixture.layout.setConstraints([](const View* view) { return LayoutConstraints{.fullscreen = view == stub(0)}; });
+  fixture.open(1);
+  fixture.layout.arrange(kUsable);
+  fixture.layout.insertView(stub(1), 0);
+  CHECK(fixture.layout.selectTab(stub(1)));
+  fixture.layout.arrange(kUsable);
+  const wlr_box box = fixture.layout.targetBox(stub(1));
+  CHECK_EQ(box.y, 10 + kReserve);
+  CHECK_EQ(box.width, 1260);
+  CHECK_EQ(box.height, 700 - kReserve);
+  // The fullscreen tab keeps its state, is not drawn, and returns when selected.
+  CHECK(sameBox(fixture.layout.targetBox(stub(0)), box));
+  CHECK(umbriel::hiddenTab(fixture.column(), stub(0)));
+  CHECK(fixture.layout.isFullWidth(0));
+  CHECK(fixture.layout.selectTab(stub(0)));
+  CHECK(!umbriel::hiddenTab(fixture.column(), stub(0)));
+  CHECK(umbriel::hiddenTab(fixture.column(), stub(1)));
 }
 
 // master

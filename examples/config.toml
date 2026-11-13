@@ -307,6 +307,8 @@ default_extent_fraction = 0.5
 # default_display = "normal"
 # new_tab_position = "after_active"
 # middle_click_closes = true
+# Keep every window of each scrolling workspace in one tab group filling the layout area.
+# single_group = true
 #
 # [appearance.tab_bar]
 # style = "titles"         # "indicator" draws thin slots without titles
