@@ -148,13 +148,70 @@ namespace umbriel {
     bool operator==(const TabDropPoint&) const = default;
   };
 
+  // The boundary between slots where a window joining at `position` shows, measured from the bar's leading edge.
+  // `position` counts among the bar's tabs; one outside the strip it shows sits at that strip's end.
+  constexpr int tabBarDropBoundary(int width, int height, int gap, TabStrip strip, size_t tabs, size_t position) {
+    const TabBarParts parts = tabBarParts(width, height, gap, strip.count < tabs);
+    if (strip.count == 0 || position <= strip.first) {
+      return parts.slotsX;
+    }
+    if (position >= strip.first + strip.count) {
+      return parts.slotsX + parts.slotsWidth;
+    }
+    return parts.slotsX + tabSlot(parts.slotsWidth, strip.count, position - strip.first, gap).x - gap / 2;
+  }
+
   constexpr TabDropPoint tabBarDropAt(int width, int height, int gap, TabStrip strip, size_t tabs, double x) {
     const TabBarParts parts = tabBarParts(width, height, gap, strip.count < tabs);
     const size_t position = tabInsertionAt(parts.slotsWidth, strip.count, x - parts.slotsX, gap);
-    const int boundary = position == 0 ? 0
-        : position >= strip.count      ? parts.slotsWidth
-                                       : tabSlot(parts.slotsWidth, strip.count, position, gap).x - gap / 2;
-    return {.row = std::min(strip.first + position, tabs), .boundary = parts.slotsX + boundary};
+    const size_t row = std::min(strip.first + position, tabs);
+    return {.row = row, .boundary = tabBarDropBoundary(width, height, gap, strip, tabs, row)};
+  }
+
+  // A tab bar as a single-group workspace's drop target reads it: where it is drawn, how its slots sit, and what it
+  // shows. A zero width or height is a bar that is not drawn.
+  struct TabBarDropArea {
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+    bool across = true;
+    int gap = 0;
+    TabStrip strip{};
+    size_t tabs = 0;
+    bool operator==(const TabBarDropArea&) const = default;
+  };
+
+  // The tab group a drop onto a single-group workspace targets, counted in its column's rows.
+  struct TabGroupRows {
+    size_t first = 0;
+    size_t count = 0;
+    size_t active = 0;
+    bool afterActive = false;
+    bool operator==(const TabGroupRows&) const = default;
+  };
+
+  // Where a window dropped at the layout point joins a single-group workspace's tabs: between the slots under the
+  // pointer when it is on the bar or close enough to mean it, else where new tabs go.
+  constexpr size_t singleGroupDropRow(const TabBarDropArea& bar, const TabGroupRows& rows, double lx, double ly) {
+    // New tabs go after the row on show, or at the group's end.
+    const size_t newTab =
+        rows.afterActive ? std::min(rows.active + 1, rows.first + rows.count) : rows.first + rows.count;
+    if (bar.width <= 0 || bar.height <= 0) {
+      return newTab;
+    }
+    // Half the bar's thickness again on either side of it still means it, so a drop beside the bar picks the nearest
+    // slot.
+    const int length = bar.across ? bar.width : bar.height;
+    const int thickness = bar.across ? bar.height : bar.width;
+    const double through = bar.across ? ly - bar.y : lx - bar.x;
+    if (through < -thickness / 2.0 || through >= thickness * 1.5) {
+      return newTab;
+    }
+    // Measured along the bar, so a point beside it counts as the nearest place on it.
+    const TabDropPoint drop =
+        tabBarDropAt(length, thickness, bar.gap, bar.strip, bar.tabs, bar.across ? lx - bar.x : ly - bar.y);
+    return std::min(rows.first + drop.row, rows.first + rows.count);
   }
 
 } // namespace umbriel
