@@ -302,13 +302,13 @@ UMBRIEL_TEST(aDropOnASingleGroupsBarLandsBetweenItsSlots) {
   };
   const umbriel::TabGroupRows rows{.first = 5, .count = 4, .active = 6};
   // The trailing half of the first slot inserts after tab 5; the trailing half of the last, after tab 8.
-  CHECK_EQ(umbriel::singleGroupDropRow(bar, rows, 170.0, 224.0), size_t{6});
-  CHECK_EQ(umbriel::singleGroupDropRow(bar, rows, 480.0, 224.0), size_t{9});
-  // Half the bar's thickness again on either side still means the bar.
-  CHECK_EQ(umbriel::singleGroupDropRow(bar, rows, 170.0, 188.0), size_t{6});
-  CHECK_EQ(umbriel::singleGroupDropRow(bar, rows, 170.0, 234.0), size_t{6});
-  // Further from it than that, the point no longer names a slot.
-  CHECK_EQ(umbriel::singleGroupDropRow(bar, rows, 170.0, 170.0), size_t{9});
+  CHECK_EQ(umbriel::singleGroupDropRow(bar, rows, 170.0, 210.0), size_t{6});
+  CHECK_EQ(umbriel::singleGroupDropRow(bar, rows, 480.0, 210.0), size_t{9});
+  // Only a point inside the bar names a slot; one above, below, or beside it joins where new tabs go.
+  CHECK_EQ(umbriel::singleGroupDropRow(bar, rows, 170.0, 199.0), size_t{9});
+  CHECK_EQ(umbriel::singleGroupDropRow(bar, rows, 170.0, 224.0), size_t{9});
+  CHECK_EQ(umbriel::singleGroupDropRow(bar, rows, 99.0, 210.0), size_t{9});
+  CHECK_EQ(umbriel::singleGroupDropRow(bar, rows, 500.0, 210.0), size_t{9});
 }
 
 UMBRIEL_TEST(aDropOnASingleGroupsMiddleJoinsWhereNewTabsGo) {
@@ -376,6 +376,8 @@ UMBRIEL_TEST(aDropOnASingleGroupsEdgesJoinsWhereNewTabsGo) {
       .tabs = 4,
   };
   CHECK_EQ(umbriel::singleGroupDropRow(side, rows, 112.0, 380.0), size_t{7});
+  CHECK_EQ(umbriel::singleGroupDropRow(side, rows, 99.0, 380.0), size_t{9});
+  CHECK_EQ(umbriel::singleGroupDropRow(side, rows, 112.0, 600.0), size_t{9});
   CHECK_EQ(umbriel::singleGroupDropRow(side, rows, 300.0, 380.0), size_t{9});
 }
 
