@@ -238,6 +238,43 @@ namespace umbriel {
 
   bool ScrollingLayout::singleGroup() const { return m_config != nullptr && m_config->tabs.singleGroup; }
 
+  std::optional<ScrollingLayout::NamedColumnPlacement> ScrollingLayout::namedColumnPlacement(
+      const View* joining, std::string_view name, std::optional<int> order, const NamedColumnFactsFn& facts
+  ) const {
+    if (singleGroup() || name.empty() || !facts) {
+      return std::nullopt;
+    }
+    for (size_t columnIndex = 0; columnIndex < m_columns.size(); ++columnIndex) {
+      const Column& column = m_columns[columnIndex];
+      const bool holdsMember = std::ranges::any_of(column.views, [&](const View* existing) {
+        if (existing == joining) {
+          return false;
+        }
+        const NamedColumnFacts member = facts(existing);
+        return member.name && *member.name == name;
+      });
+      if (!holdsMember) {
+        continue;
+      }
+      size_t row = column.views.size();
+      if (order) {
+        for (size_t index = 0; index < column.views.size(); ++index) {
+          const View* existing = column.views[index];
+          if (existing == joining) {
+            continue;
+          }
+          const NamedColumnFacts member = facts(existing);
+          if (member.name && *member.name == name && (!member.order || *member.order > *order)) {
+            row = index;
+            break;
+          }
+        }
+      }
+      return NamedColumnPlacement{.column = columnIndex, .row = static_cast<int>(row)};
+    }
+    return std::nullopt;
+  }
+
   bool ScrollingLayout::joinSingleGroup(View* view, std::optional<size_t> row) {
     if (view == nullptr || m_columns.empty()) {
       return false;
@@ -670,6 +707,9 @@ namespace umbriel {
   }
 
   bool ScrollingLayout::consume(View* view, int direction) {
+    if (singleGroup()) {
+      return false;
+    }
     const int sourceColumn = columnOf(view);
     const int destinationColumn = sourceColumn + direction;
     if ((direction != -1 && direction != 1)
@@ -700,6 +740,9 @@ namespace umbriel {
   }
 
   bool ScrollingLayout::consumeFrom(View* view, int direction) {
+    if (singleGroup()) {
+      return false;
+    }
     int destinationColumn = columnOf(view);
     const int sourceColumn = destinationColumn + direction;
     if ((direction != -1 && direction != 1)
@@ -917,7 +960,7 @@ namespace umbriel {
   }
 
   void ScrollingLayout::moveColumn(int from, int to) {
-    if (from < 0 || from >= static_cast<int>(m_columns.size())) {
+    if (singleGroup() || from < 0 || from >= static_cast<int>(m_columns.size())) {
       return;
     }
     const int destination = std::clamp(to, 0, static_cast<int>(m_columns.size()) - 1);
@@ -930,6 +973,9 @@ namespace umbriel {
   }
 
   void ScrollingLayout::setScroll(double scroll, bool centeredRest) {
+    if (singleGroup()) {
+      return;
+    }
     m_scroll = scroll;
     m_centeredRest = centeredRest;
     m_policyCenteredRest = false;
@@ -1408,6 +1454,42 @@ namespace umbriel {
     const bool target = shown.value_or(!current);
     column.tabs.setBar(row, target);
     return target != current;
+  }
+
+  void ScrollingLayout::collapseToSingleGroup(View* active) {
+    Column merged;
+    merged.widthFrac = 1.0;
+    size_t activeRow = 0;
+    for (const Column& column : m_columns) {
+      for (View* view : column.views) {
+        if (view == nullptr) {
+          continue;
+        }
+        if (view == active) {
+          activeRow = merged.views.size();
+        }
+        merged.views.push_back(view);
+        merged.heightWeights.push_back(1.0);
+        merged.rememberedScrollingExtents.push_back(0.0);
+      }
+    }
+    m_columns.clear();
+    m_targets.clear();
+    if (!merged.views.empty()) {
+      merged.tabs.form(0, merged.views.size(), activeRow);
+      m_columns.push_back(std::move(merged));
+    }
+    m_scroll = 0.0;
+    m_centeredRest = false;
+    m_policyCenteredRest = false;
+    m_lastFocusedColumn = -1;
+    m_focusSide = FocusSide::None;
+    m_removedFocusedColumn = -1;
+    m_pendingRemovalReevaluate = false;
+    m_pendingViewportSnapshot = nullptr;
+    m_pendingViewportAnchor = nullptr;
+    m_pendingViewportComplete = false;
+    m_lastAvailableCross = 0;
   }
 
   bool ScrollingLayout::adoptTabs(int columnIndex, const ColumnTabs& tabs) {
