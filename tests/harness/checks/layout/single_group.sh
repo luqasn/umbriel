@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # A single-group workspace holds every window in one tab group filling the layout area: a second client shares the
-# first's box and is reported as a hidden tab, and clicking a bar slot switches which one shows.
+# first's box and is reported as a hidden tab, clicking a bar slot switches which one shows, and the directional window
+# actions focus, reorder, and swap its tabs instead of leaving the group.
 set -euo pipefail
 
 readonly BTN_LEFT=272
@@ -98,4 +99,44 @@ if [[ $before != "$after" ]]; then
   exit 1
 fi
 
-echo "single-group workspace held both clients in one full-area tab group and switched by slot"
+# The usual focus keys walk the tabs, and a move reorders the shown one without leaving the group.
+"$UMBRIEL" msg window-focus-right > /dev/null
+"$UMBRIEL" settle
+wait_for_one_group group-b
+
+"$UMBRIEL" msg window-move-left > /dev/null
+"$UMBRIEL" settle
+wait_for_one_group group-b
+order=$("$UMBRIEL" windows --json | jq -c 'sort_by(.tab_index) | map(.title)')
+if [[ $order != '["group-b","group-a"]' ]]; then
+  echo "expected the move to put group-b first, got $order"
+  exit 1
+fi
+
+# Swapping exchanges the shown tab with its neighbour and keeps the box.
+"$UMBRIEL" msg window-swap-right > /dev/null
+"$UMBRIEL" settle
+wait_for_one_group group-b
+order=$("$UMBRIEL" windows --json | jq -c 'sort_by(.tab_index) | map(.title)')
+if [[ $order != '["group-a","group-b"]' ]]; then
+  echo "expected the swap to put group-a first, got $order"
+  exit 1
+fi
+
+swapped=$("$UMBRIEL" windows --json | jq -c 'map([.x, .y, .w, .h]) | unique')
+if [[ $before != "$swapped" ]]; then
+  echo "expected the group box to stay put through a swap, had $before, now $swapped"
+  exit 1
+fi
+
+# A column move has one column to act on, so it changes neither the order nor the box.
+"$UMBRIEL" msg column-move-left > /dev/null
+"$UMBRIEL" settle
+column_order=$("$UMBRIEL" windows --json | jq -c 'sort_by(.tab_index) | map(.title)')
+column_box=$("$UMBRIEL" windows --json | jq -c 'map([.x, .y, .w, .h]) | unique')
+if [[ $column_order != '["group-a","group-b"]' || $column_box != "$before" ]]; then
+  echo "expected a column move to leave the group alone, got $column_order in $column_box"
+  exit 1
+fi
+
+echo "single-group workspace held both clients in one full-area tab group, switched by slot, and walked, reordered, and swapped its tabs"
