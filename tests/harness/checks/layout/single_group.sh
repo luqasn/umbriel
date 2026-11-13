@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
+# harness: outputs=2
 # A single-group workspace holds every window in one tab group filling the layout area: a second client shares the
-# first's box and is reported as a hidden tab, and clicking a bar slot switches which one shows.
+# first's box and is reported as a hidden tab, clicking a bar slot switches which one shows, dragging a slot reorders
+# without splitting the group, and a window dragged in from another workspace joins at the new-tab position.
 set -euo pipefail
 
 readonly BTN_LEFT=272
-readonly OUTPUT_W=1280
+readonly OUTPUT_W=2560
 readonly OUTPUT_H=720
 readonly BORDER=2
 readonly GAP=8
@@ -30,24 +32,25 @@ wait_for_windows() {
   return 1
 }
 
-# Waits until both clients are tabs of one box, `$1` being the only shown and active one.
+# Waits until every client is a tab of one box, `$1` being the only shown and active one.
 wait_for_one_group() {
-  local shown=$1 windows=
+  local shown=$1 expected=$2 windows=
   for _ in $(seq 50); do
     windows=$("$UMBRIEL" windows --json)
-    if jq -e --arg shown "$shown" '
-      length == 2
-      and (map(select(.tabbed)) | length) == 2
-      and (map(select(.tab_hidden)) | length) == 1
+    if jq -e --arg shown "$shown" --argjson count "$expected" '
+      length == $count
+      and (map(select(.tabbed)) | length) == $count
+      and (map(select(.tab_hidden)) | length) == $count - 1
       and (map(select(.title == $shown and (.tab_hidden | not) and .active)) | length) == 1
       and (map([.x, .y, .w, .h]) | unique | length) == 1
-      and (map(.tab_index) | sort) == [0, 1]
+      and (map(.column) | unique | length) == 1
+      and (map(.tab_index) | sort) == [range(0; $count)]
     ' <<< "$windows" > /dev/null; then
       return 0
     fi
     sleep 0.1
   done
-  echo "expected '$shown' to be the shown tab of one full-area group: $windows"
+  echo "expected '$shown' to be the shown tab of one full-area group of $expected: $windows"
   return 1
 }
 
@@ -63,6 +66,14 @@ slot_center() {
   ' <<< "$windows"
 }
 
+# The shown tab's bar span: its leading edge, its length, and the height through the middle of the bar.
+bar_span() {
+  "$UMBRIEL" windows --json | jq -r --argjson border "$BORDER" --argjson gap "$GAP" --argjson bar "$BAR" '
+    map(select(.tabbed and (.tab_hidden | not)))[0]
+    | "\(.x - $border) \(.w + 2 * $border) \(.y - $border - $gap - ($bar / 2 | floor))"
+  '
+}
+
 cat >> "$UMBRIEL_CONFIG" <<'EOF'
 
 [layout.tabs]
@@ -70,6 +81,14 @@ single_group = true
 
 [appearance.tab_bar]
 tab_gap = 0
+
+[[window_rule]]
+match.title = "^group-[ab]$"
+default_output = "HEADLESS-1"
+
+[[window_rule]]
+match.title = "^group-c$"
+default_output = "HEADLESS-2"
 EOF
 "$UMBRIEL" msg config-reload > /dev/null
 
@@ -79,18 +98,18 @@ spawn_client group-b
 wait_for_windows 2
 "$UMBRIEL" settle
 
-if [[ $("$UMBRIEL" workspaces --json | jq -r '.[] | select(.active) | .layout') != scrolling ]]; then
+if [[ $("$UMBRIEL" workspaces --json | jq -r '.[] | select(.output == "HEADLESS-1" and .active) | .layout') != scrolling ]]; then
   echo "expected the single-group workspace to keep the scrolling layout: $("$UMBRIEL" workspaces --json)"
   exit 1
 fi
-wait_for_one_group group-b
+wait_for_one_group group-b 2
 
 before=$("$UMBRIEL" windows --json | jq -c 'map([.x, .y, .w, .h]) | unique')
 
 read -r x y <<< "$(slot_center 0 2)"
 pointer move "$x" "$y" click "$BTN_LEFT"
 "$UMBRIEL" settle
-wait_for_one_group group-a
+wait_for_one_group group-a 2
 
 after=$("$UMBRIEL" windows --json | jq -c 'map([.x, .y, .w, .h]) | unique')
 if [[ $before != "$after" ]]; then
@@ -98,4 +117,78 @@ if [[ $before != "$after" ]]; then
   exit 1
 fi
 
-echo "single-group workspace held both clients in one full-area tab group and switched by slot"
+# Dragging the first slot to the trailing half of the bar puts it after the other tab instead of tearing the group
+# apart, and leaves the group's box alone.
+read -r left width bar_y <<< "$(bar_span)"
+start_x=$((left + width / 4))
+end_x=$((left + width * 3 / 4))
+pointer move "$start_x" "$bar_y" press "$BTN_LEFT" move "$((start_x + 60))" "$bar_y" pause 200 \
+  move "$end_x" "$bar_y" pause 200 release "$BTN_LEFT"
+"$UMBRIEL" settle
+
+windows=$("$UMBRIEL" windows --json)
+if ! jq -e '
+  ((map(select(.title | startswith("group-"))) | sort_by(.tab_index) | map(.title)) == ["group-b", "group-a"])
+    and (map(.tabbed) | all)
+    and (map([.x, .y, .w, .h]) | unique | length) == 1
+    and (map(.column) | unique | length) == 1
+' <<< "$windows" > /dev/null; then
+  echo "dragging a bar slot did not reorder the tabs in place: $windows"
+  exit 1
+fi
+reordered=$("$UMBRIEL" windows --json | jq -c 'map([.x, .y, .w, .h]) | unique')
+if [[ $before != "$reordered" ]]; then
+  echo "reordering a tab moved the group box, had $before, now $reordered"
+  exit 1
+fi
+
+# A window opened on another workspace's single-group workspace, dragged in with Mod, becomes a tab of the same group
+# instead of opening a column beside it, and leaves its own workspace.
+spawn_client group-c
+wait_for_windows 3
+"$UMBRIEL" settle
+for _ in $(seq 50); do
+  [[ $("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "group-c") | .tabbed') == true ]] && break
+  sleep 0.1
+done
+read -r start_x start_y <<< "$(
+  "$UMBRIEL" windows --json | jq -r '.[] | select(.title == "group-c") | "\(.x + (.w / 2 | floor)) \(.y + (.h / 2 | floor))"'
+)"
+read -r group_x group_y group_h <<< "$(
+  "$UMBRIEL" windows --json | jq -r '[.[] | select(.workspace | startswith("HEADLESS-1"))][0] | "\(.x) \(.y) \(.h)"'
+)"
+drop_x=$((group_x + 640))
+# The top eighth is off the bar and outside the group's middle, so only the new-tab position can hold the drop.
+drop_y=$((group_y + group_h / 8))
+pointer mod logo move "$start_x" "$start_y" press "$BTN_LEFT" move "$((start_x - 80))" "$start_y" pause 200 \
+  move "$drop_x" "$drop_y" pause 300 release "$BTN_LEFT" mod none
+"$UMBRIEL" settle
+wait_for_one_group group-c 3
+
+windows=$("$UMBRIEL" windows --json)
+if ! jq -e '.[] | select(.title == "group-c") | .tab_index == 2' <<< "$windows" > /dev/null; then
+  echo "the window dragged in from another workspace did not join at the new-tab position: $windows"
+  exit 1
+fi
+if [[ $("$UMBRIEL" windows --json | jq '[.[] | select(.workspace | startswith("HEADLESS-2"))] | length') != 0 ]]; then
+  echo "the window dragged off its workspace stayed behind: $("$UMBRIEL" windows --json)"
+  exit 1
+fi
+
+# Mod+dragging the group inside its own workspace has nowhere to move or resize it.
+order=$("$UMBRIEL" windows --json | jq -c 'map(select(.title | startswith("group-")) | [.title, .tab_index, .tab_hidden]) | sort_by(.[1])')
+box=$("$UMBRIEL" windows --json | jq -c 'map([.x, .y, .w, .h]) | unique')
+read -r x y <<< "$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "group-c") | "\(.x + (.w / 2 | floor)) \(.y + (.h / 2 | floor))"')"
+pointer mod logo move "$x" "$y" press "$BTN_LEFT" move "$((x + 80))" "$y" pause 200 \
+  move "$((x + 120))" "$((y + 60))" pause 200 release "$BTN_LEFT" mod none
+"$UMBRIEL" settle
+
+windows=$("$UMBRIEL" windows --json)
+if [[ $(jq -c 'map([.x, .y, .w, .h]) | unique' <<< "$windows") != "$box" ]] \
+  || [[ $(jq -c 'map(select(.title | startswith("group-")) | [.title, .tab_index, .tab_hidden]) | sort_by(.[1])' <<< "$windows") != "$order" ]] \
+  || ! jq -e '(map(.tabbed) | all) and (map(.column) | unique | length) == 1' <<< "$windows" > /dev/null; then
+  echo "Mod+dragging the group moved or resized it: $windows"
+  exit 1
+fi
+
+echo "single-group workspace held every client in one full-area tab group, reordered by drag, and took a window from another workspace"
