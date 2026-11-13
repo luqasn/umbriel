@@ -113,6 +113,11 @@ namespace umbriel {
       return scratchpadHoldsFocus(server) ? nullptr : activeWorkspace(server);
     }
 
+    bool focusedTiled(const Workspace& workspace) {
+      const View* focused = workspace.focusedView();
+      return focused != nullptr && !focused->floating();
+    }
+
     // Window IDs are ext-foreign-toplevel identifiers, the same strings
     // clients receive from the protocol and the IPC surface reuses.
     std::expected<View*, std::string> viewByForeignIdentifier(Server& server, std::string_view id) {
@@ -228,7 +233,8 @@ namespace umbriel {
       const bool floating = view.floating();
       std::optional<double> widthFrac;
       bool fullWidth = false;
-      if (!floating && target.scrollingLayout() != nullptr) {
+      // A single-group source has no column width of its own to carry; the destination's rules decide its width.
+      if (!floating && target.scrollingLayout() != nullptr && (source == nullptr || !source->isSingleGroup())) {
         const ScrollingLayout* sourceLayout = source != nullptr ? source->scrollingLayout() : nullptr;
         if (sourceLayout != nullptr) {
           const int column = sourceLayout->columnOf(&view);
@@ -956,7 +962,7 @@ namespace umbriel {
       if (workspace->layout().tabbedContainers() == nullptr) {
         return reject(error, "tabs need a layout with columns: scrolling or master");
       }
-      if (ScrollingLayout* scrolling = workspace->scrollingLayout(); scrolling != nullptr && scrolling->singleGroup()) {
+      if (workspace->isSingleGroup()) {
         return true;
       }
       workspace->setFocusedColumnTabbed(tabbed);
@@ -1106,7 +1112,7 @@ namespace umbriel {
       }
       if (Workspace* workspace = windowActionWorkspace(server)) {
         const View* focused = workspace->focusedView();
-        if (workspace->isSingleGroup() && (focused == nullptr || !focused->floating())) {
+        if (workspace->isSingleGroup() && focusedTiled(*workspace)) {
           return actionWindowMoveToOutput<WlrDir>(server, bind, error);
         }
         const FocusedMove move = beginFocusedMove(server);
@@ -1125,9 +1131,8 @@ namespace umbriel {
       if (scratchpadHoldsFocus(server)) {
         return true;
       }
-      if (Workspace* workspace = windowActionWorkspace(server); workspace != nullptr
-          && workspace->isSingleGroup()
-          && (workspace->focusedView() == nullptr || !workspace->focusedView()->floating())) {
+      if (Workspace* workspace = windowActionWorkspace(server);
+          workspace != nullptr && workspace->isSingleGroup() && focusedTiled(*workspace)) {
         return actionWindowMoveToOutput<WlrDir>(server, bind, error);
       }
       const FocusedMove move = beginFocusedMove(server);
@@ -1171,9 +1176,7 @@ namespace umbriel {
     bool actionMoveVerticalOrWorkspace(Server& server, const Keybind& /*bind*/, std::string* /*error*/) {
       const FocusedMove move = beginFocusedMove(server);
       Workspace* source = windowActionWorkspace(server);
-      const View* focused = source != nullptr ? source->focusedView() : nullptr;
-      const bool singleGroupTab =
-          source != nullptr && source->isSingleGroup() && (focused == nullptr || !focused->floating());
+      const bool singleGroupTab = source != nullptr && source->isSingleGroup() && focusedTiled(*source);
       if (source != nullptr && !singleGroupTab && source->moveFocusedVertical(Direction)) {
         finishFocusedMove(server, move);
       } else if (source != nullptr) {
@@ -1525,8 +1528,7 @@ namespace umbriel {
 
     bool actionLayoutToggleSplit(Server& server, const Keybind& /*bind*/, std::string* error) {
       if (Workspace* workspace = activeWorkspace(server)) {
-        if (ScrollingLayout* scrolling = workspace->scrollingLayout();
-            scrolling != nullptr && scrolling->singleGroup()) {
+        if (workspace->isSingleGroup()) {
           return true;
         }
         if (workspace->layoutMode() != LayoutMode::Dwindle) {
