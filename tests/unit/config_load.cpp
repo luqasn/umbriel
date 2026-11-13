@@ -676,6 +676,7 @@ new_tab_position = "after_active"
 wrap_focus = false
 scroll_switches_tabs = false
 middle_click_closes = true
+single_group = true
 
 [appearance.tab_bar]
 style = "indicator"
@@ -702,6 +703,7 @@ name = "dev"
 
 [workspace.layout.tabs]
 default_display = "normal"
+single_group = false
 
 [[window_rule]]
 match.app_id = "^firefox$"
@@ -719,6 +721,7 @@ default_column_display = "tabbed"
   CHECK(!config.layout.tabs.wrapFocus);
   CHECK(!config.layout.tabs.scrollSwitchesTabs);
   CHECK(config.layout.tabs.middleClickCloses);
+  CHECK(config.layout.tabs.singleGroup);
   CHECK(config.appearance.tabBar.style == umbriel::TabBarLook::Indicator);
   CHECK(config.appearance.tabBar.position == umbriel::TabBarPosition::Bottom);
   CHECK_EQ(config.appearance.tabBar.height, 4);
@@ -734,6 +737,7 @@ default_column_display = "tabbed"
   CHECK_EQ(config.colors.tabBar.urgent[3], 128.0F / 255.0F);
   CHECK_EQ(config.workspaceRules.size(), size_t{1});
   CHECK(config.workspaceRules[0].layout.tabs.defaultDisplay == umbriel::ColumnDisplay::Normal);
+  CHECK(config.workspaceRules[0].layout.tabs.singleGroup == false);
   CHECK_EQ(config.windowRules.size(), size_t{1});
   CHECK(config.windowRules[0].defaultColumnDisplay == umbriel::ColumnDisplay::Tabbed);
 
@@ -744,6 +748,7 @@ default_column_display = "tabbed"
   CHECK_EQ(resolved.tabs.barGap, 3);
   CHECK(resolved.tabs.barPosition == umbriel::TabBarPosition::Bottom);
   CHECK(resolved.tabs.hideWhenSingle);
+  CHECK(resolved.tabs.singleGroup);
 }
 
 UMBRIEL_TEST(masterPositionAcceptsCenterAndRejectsOtherValues) {

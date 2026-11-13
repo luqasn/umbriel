@@ -66,6 +66,35 @@ UMBRIEL_TEST(tabBarGapFollowsTheWorkspaceGapUnlessSet) {
   CHECK_EQ(umbriel::resolveWorkspaceLayout(config, identity("DP-1"), "wide", 0).tabs.barGap, 0);
 }
 
+UMBRIEL_TEST(singleGroupResolvesFromTheGlobalLayoutAndWorkspaceRules) {
+  Config config;
+  // Off unless configured, globally and per workspace.
+  CHECK(!umbriel::resolveGlobalLayout(config).tabs.singleGroup);
+  CHECK(!umbriel::resolveWorkspaceLayout(config, identity("DP-1"), "dev", 0).tabs.singleGroup);
+
+  config.layout.tabs.singleGroup = true;
+  CHECK(umbriel::resolveGlobalLayout(config).tabs.singleGroup);
+  CHECK(umbriel::resolveWorkspaceLayout(config, identity("DP-1"), "dev", 0).tabs.singleGroup);
+  CHECK(umbriel::resolveUnnamedWorkspaceLayout(config, identity("DP-1"), 0).tabs.singleGroup);
+
+  // A rule without an output overrides the global value on every output.
+  WorkspaceConfig dev;
+  dev.name = "dev";
+  dev.layout.tabs.singleGroup = false;
+  config.workspaceRules.push_back(std::move(dev));
+  CHECK(!umbriel::resolveWorkspaceLayout(config, identity("DP-1"), "dev", 0).tabs.singleGroup);
+  CHECK(!umbriel::resolveWorkspaceLayout(config, identity("DP-2"), "dev", 0).tabs.singleGroup);
+
+  // An output-restricted rule is the most specific and wins over both.
+  WorkspaceConfig onDpTwo;
+  onDpTwo.name = "dev";
+  onDpTwo.output = "DP-2";
+  onDpTwo.layout.tabs.singleGroup = true;
+  config.workspaceRules.push_back(std::move(onDpTwo));
+  CHECK(!umbriel::resolveWorkspaceLayout(config, identity("DP-1"), "dev", 0).tabs.singleGroup);
+  CHECK(umbriel::resolveWorkspaceLayout(config, identity("DP-2"), "dev", 0).tabs.singleGroup);
+}
+
 UMBRIEL_TEST(workspaceOverridesApplyGlobalThenOutputSpecificRules) {
   Config config;
   config.layout.gap = 8;
