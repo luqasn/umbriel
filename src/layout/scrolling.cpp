@@ -236,6 +236,25 @@ namespace umbriel {
 
   bool ScrollingLayout::vertical() const { return m_config->scrolling.direction == ScrollingDirection::Vertical; }
 
+  bool ScrollingLayout::singleGroup() const { return m_config != nullptr && m_config->tabs.singleGroup; }
+
+  bool ScrollingLayout::joinSingleGroup(View* view, std::optional<size_t> row) {
+    if (view == nullptr || m_columns.empty()) {
+      return false;
+    }
+    Column& column = m_columns.front();
+    const TabGroup* group = column.tabs.groups().empty() ? nullptr : &column.tabs.groups().front();
+    if (group == nullptr) {
+      // A column restored without a group still ends up as one, showing the arrival.
+      insertRow(column, column.views.size(), view, 1.0, 0.0);
+      column.tabs.form(0, column.views.size(), column.views.size() - 1);
+      return true;
+    }
+    const size_t landing = row ? std::clamp(*row, group->first, group->end()) : newTabRow(*group);
+    insertRow(column, landing, view, 1.0, 0.0, size_t{0});
+    return true;
+  }
+
   void ScrollingLayout::syncHeightWeights(Column& column) { ensureWeightCount(column); }
 
   int ScrollingLayout::columnOf(const View* view) const {
@@ -419,6 +438,9 @@ namespace umbriel {
     if (columnIndex < 0 || columnIndex >= static_cast<int>(m_columns.size())) {
       return 0;
     }
+    if (singleGroup()) {
+      return std::max(1, viewportPrimary);
+    }
     const Column& column = m_columns[static_cast<size_t>(columnIndex)];
     // Fullscreen lanes fill the entire viewport, bypassing widthFrac and size-hint clamps.
     if (columnFillsViewport(column, *this)) {
@@ -446,7 +468,7 @@ namespace umbriel {
   }
 
   bool ScrollingLayout::setWidthFromPixels(int columnIndex, int viewportPrimary, int width) {
-    if (columnIndex < 0 || columnIndex >= static_cast<int>(m_columns.size())) {
+    if (singleGroup() || columnIndex < 0 || columnIndex >= static_cast<int>(m_columns.size())) {
       return false;
     }
     const int gap = m_config->totalGap;
@@ -509,12 +531,25 @@ namespace umbriel {
     if (columnIndex < 0 || columnIndex >= static_cast<int>(m_columns.size())) {
       return false;
     }
-    const Column& column = m_columns[static_cast<size_t>(columnIndex)];
-    return column.savedWidthFrac > 0.0 || columnFillsViewport(column, *this);
+    return singleGroup()
+        || m_columns[static_cast<size_t>(columnIndex)].savedWidthFrac > 0.0
+        || columnFillsViewport(m_columns[static_cast<size_t>(columnIndex)], *this);
   }
 
   void ScrollingLayout::insertView(View* view, int columnIndex) {
     if (view == nullptr || columnOf(view) >= 0) {
+      return;
+    }
+    if (singleGroup()) {
+      if (m_columns.empty()) {
+        Column column;
+        column.widthFrac = 1.0;
+        insertRow(column, 0, view, 1.0, 0.0);
+        column.tabs.form(0, 1, 0);
+        m_columns.push_back(std::move(column));
+      } else {
+        joinSingleGroup(view, std::nullopt);
+      }
       return;
     }
     const int index = std::clamp(columnIndex, 0, static_cast<int>(m_columns.size()));
@@ -584,10 +619,18 @@ namespace umbriel {
   }
 
   void ScrollingLayout::insertViewIntoColumn(View* view, int columnIndex, int rowIndex) {
-    if (view == nullptr
-        || columnOf(view) >= 0
-        || columnIndex < 0
-        || columnIndex >= static_cast<int>(m_columns.size())) {
+    if (view == nullptr || columnOf(view) >= 0) {
+      return;
+    }
+    if (singleGroup()) {
+      if (m_columns.empty()) {
+        insertView(view, 0);
+      } else {
+        joinSingleGroup(view, rowIndex >= 0 ? std::optional<size_t>(static_cast<size_t>(rowIndex)) : std::nullopt);
+      }
+      return;
+    }
+    if (columnIndex < 0 || columnIndex >= static_cast<int>(m_columns.size())) {
       return;
     }
     Column& column = m_columns[static_cast<size_t>(columnIndex)];
@@ -600,10 +643,17 @@ namespace umbriel {
   }
 
   bool ScrollingLayout::insertTab(View* view, int columnIndex, int rowIndex, const View* member) {
-    if (view == nullptr
-        || columnOf(view) >= 0
-        || columnIndex < 0
-        || columnIndex >= static_cast<int>(m_columns.size())) {
+    if (view == nullptr || columnOf(view) >= 0) {
+      return false;
+    }
+    if (singleGroup()) {
+      if (m_columns.empty()) {
+        insertView(view, 0);
+        return true;
+      }
+      return joinSingleGroup(view, rowIndex >= 0 ? std::optional<size_t>(static_cast<size_t>(rowIndex)) : std::nullopt);
+    }
+    if (columnIndex < 0 || columnIndex >= static_cast<int>(m_columns.size())) {
       return false;
     }
     Column& column = m_columns[static_cast<size_t>(columnIndex)];
@@ -690,7 +740,7 @@ namespace umbriel {
 
   bool ScrollingLayout::expel(View* view, int direction) {
     const int sourceColumn = columnOf(view);
-    if ((direction != -1 && direction != 1) || sourceColumn < 0) {
+    if (singleGroup() || (direction != -1 && direction != 1) || sourceColumn < 0) {
       return false;
     }
     Column& source = m_columns[static_cast<size_t>(sourceColumn)];
@@ -716,6 +766,10 @@ namespace umbriel {
   }
 
   bool ScrollingLayout::moveViewVertical(View* view, int direction) {
+    // The group is the whole workspace, so a stacking-axis move reorders its tabs instead of leaving it.
+    if (singleGroup()) {
+      return moveTab(view, direction);
+    }
     const int column = columnOf(view);
     const int row = rowOf(view);
     if (column < 0 || row < 0) {
@@ -1174,6 +1228,10 @@ namespace umbriel {
     m_lastViewportPrimary = viewportPrimary;
     const int availableCross = std::max(1, (v ? usable.width : usable.height) - 2 * edgePad);
     m_lastAvailableCross = availableCross;
+    if (singleGroup()) {
+      arrangeSingleGroup(usable, viewportPrimary, availableCross);
+      return;
+    }
     const double maxScroll = static_cast<double>(std::max(0, totalWidth(viewportPrimary) - viewportPrimary));
     // Allow overscroll past both strip edges so gesture spring-back is visible.
     const auto viewport = static_cast<double>(viewportPrimary);
@@ -1241,6 +1299,37 @@ namespace umbriel {
     }
   }
 
+  void ScrollingLayout::arrangeSingleGroup(const wlr_box& usable, int viewportPrimary, int availableCross) {
+    // One group fills the workspace, so there is no strip to scroll and no lane to resize.
+    m_scroll = 0.0;
+    m_centeredRest = false;
+    m_policyCenteredRest = false;
+    if (m_columns.empty()) {
+      return;
+    }
+    Column& column = m_columns.front();
+    column.widthFrac = 1.0;
+    ensureWeightCount(column);
+    if (column.views.empty()) {
+      return;
+    }
+    const int edgePad = m_config->edgePad;
+    const wlr_box unit = vertical()
+        ? wlr_box{.x = usable.x + edgePad, .y = usable.y + edgePad, .width = availableCross, .height = viewportPrimary}
+        : wlr_box{.x = usable.x + edgePad, .y = usable.y + edgePad, .width = viewportPrimary, .height = availableCross};
+    if (const TabGroup* group = column.tabs.groupAt(0)) {
+      pushTabTargets(column, *group, unit);
+      return;
+    }
+    // A column restored without a group still gives every window the area until the group forms.
+    for (View* view : column.views) {
+      const LayoutConstraints constraints = constraintsFor(view);
+      const int width = vertical() ? constraints.clampWidth(unit.width) : unit.width;
+      const int height = vertical() ? unit.height : constraints.clampHeight(unit.height);
+      m_targets.push_back({.view = view, .x = unit.x, .y = unit.y, .width = width, .height = height});
+    }
+  }
+
   void ScrollingLayout::pushTabTargets(const Column& column, const TabGroup& group, const wlr_box& unit) {
     // Every tab gets the group's unit less its bar.
     const bool v = vertical();
@@ -1257,7 +1346,7 @@ namespace umbriel {
 
   bool ScrollingLayout::setTabbed(const View* view, bool tabbed) {
     const int columnIndex = columnOf(view);
-    if (columnIndex < 0) {
+    if (singleGroup() || columnIndex < 0) {
       return false;
     }
     Column& column = m_columns[static_cast<size_t>(columnIndex)];
@@ -1345,6 +1434,23 @@ namespace umbriel {
       const wlr_box& usable, bool wantMaximized, std::optional<double> ruleExtent, std::optional<int> ruleExtentPx,
       const View* /*splitAnchor*/
   ) const {
+    if (singleGroup()) {
+      // The arrival joins the group, so its box is the group's: the content area less a bar its tab count shows.
+      const wlr_box content = contentArea(usable);
+      size_t tabs = 1;
+      std::optional<bool> bar;
+      if (!m_columns.empty()) {
+        const Column& column = m_columns.front();
+        if (column.tabs.groups().empty()) {
+          tabs = column.views.size() + 1;
+        } else {
+          tabs = column.tabs.groups().front().count + 1;
+          bar = column.tabs.groups().front().bar;
+        }
+      }
+      const wlr_box shared = tabbedBox({.x = 0, .y = 0, .width = content.width, .height = content.height}, tabs, bar);
+      return {.width = shared.width, .height = shared.height};
+    }
     const wlr_box content = contentArea(usable);
     const int viewportPrimary = vertical() ? content.height : content.width;
     int extent = 0;
@@ -1379,7 +1485,7 @@ namespace umbriel {
   }
 
   bool ScrollingLayout::cycleWidth(int columnIndex, int direction) {
-    if (columnIndex < 0 || columnIndex >= static_cast<int>(m_columns.size())) {
+    if (singleGroup() || columnIndex < 0 || columnIndex >= static_cast<int>(m_columns.size())) {
       return false;
     }
     Column& column = m_columns[static_cast<size_t>(columnIndex)];
@@ -1389,7 +1495,7 @@ namespace umbriel {
   }
 
   bool ScrollingLayout::toggleFullWidth(int columnIndex) {
-    if (columnIndex < 0 || columnIndex >= static_cast<int>(m_columns.size())) {
+    if (singleGroup() || columnIndex < 0 || columnIndex >= static_cast<int>(m_columns.size())) {
       return false;
     }
     Column& column = m_columns[static_cast<size_t>(columnIndex)];
@@ -1404,7 +1510,7 @@ namespace umbriel {
   }
 
   bool ScrollingLayout::setWidthFraction(int columnIndex, double fraction) {
-    if (columnIndex < 0 || columnIndex >= static_cast<int>(m_columns.size())) {
+    if (singleGroup() || columnIndex < 0 || columnIndex >= static_cast<int>(m_columns.size())) {
       return false;
     }
     Column& column = m_columns[static_cast<size_t>(columnIndex)];
@@ -1414,13 +1520,16 @@ namespace umbriel {
   }
 
   void ScrollingLayout::clearFullWidthState(int columnIndex) {
-    if (columnIndex < 0 || columnIndex >= static_cast<int>(m_columns.size())) {
+    if (singleGroup() || columnIndex < 0 || columnIndex >= static_cast<int>(m_columns.size())) {
       return;
     }
     m_columns[static_cast<size_t>(columnIndex)].savedWidthFrac = 0.0;
   }
 
   double ScrollingLayout::widthFraction(int columnIndex) const {
+    if (singleGroup()) {
+      return 1.0;
+    }
     if (columnIndex < 0 || columnIndex >= static_cast<int>(m_columns.size())) {
       return m_config->scrolling.defaultExtentFraction.value_or(0.5);
     }
@@ -1428,6 +1537,9 @@ namespace umbriel {
   }
 
   double ScrollingLayout::heightFraction(const View* view) const {
+    if (singleGroup()) {
+      return 1.0;
+    }
     const int columnIndex = columnOf(view);
     if (columnIndex < 0) {
       return 1.0;
@@ -1440,6 +1552,9 @@ namespace umbriel {
   }
 
   bool ScrollingLayout::setHeightFraction(View* view, double fraction) {
+    if (singleGroup()) {
+      return false;
+    }
     const int columnIndex = columnOf(view);
     if (columnIndex < 0) {
       return false;
@@ -1805,6 +1920,9 @@ namespace umbriel {
   } // namespace
 
   uint32_t ScrollingLayout::resizeEdgesAt(const View* view, double cx, double cy) const {
+    if (singleGroup()) {
+      return 0;
+    }
     const wlr_box box = targetBox(view);
     if (box.width <= 0 || box.height <= 0) {
       return WLR_EDGE_RIGHT;
@@ -1813,6 +1931,9 @@ namespace umbriel {
   }
 
   uint32_t ScrollingLayout::sanitizeResizeEdges(const View* view, uint32_t edges) const {
+    if (singleGroup()) {
+      return 0;
+    }
     const int columnIndex = columnOf(view);
     if (columnIndex == 0 && !m_config->scrolling.centerUnderfullStrip) {
       edges &= ~(vertical() ? WLR_EDGE_TOP : WLR_EDGE_LEFT);
@@ -1821,6 +1942,9 @@ namespace umbriel {
   }
 
   std::unique_ptr<ResizeGrab> ScrollingLayout::beginResize(View* view, uint32_t edges, const wlr_box& usable) {
+    if (singleGroup()) {
+      return nullptr;
+    }
     const int column = columnOf(view);
     if (column < 0) {
       return nullptr;
