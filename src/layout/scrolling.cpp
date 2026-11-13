@@ -1410,6 +1410,42 @@ namespace umbriel {
     return target != current;
   }
 
+  void ScrollingLayout::collapseToSingleGroup(View* active) {
+    Column merged;
+    merged.widthFrac = 1.0;
+    size_t activeRow = 0;
+    for (const Column& column : m_columns) {
+      for (View* view : column.views) {
+        if (view == nullptr) {
+          continue;
+        }
+        if (view == active) {
+          activeRow = merged.views.size();
+        }
+        merged.views.push_back(view);
+        merged.heightWeights.push_back(1.0);
+        merged.rememberedScrollingExtents.push_back(0.0);
+      }
+    }
+    m_columns.clear();
+    m_targets.clear();
+    if (!merged.views.empty()) {
+      merged.tabs.form(0, merged.views.size(), activeRow);
+      m_columns.push_back(std::move(merged));
+    }
+    m_scroll = 0.0;
+    m_centeredRest = false;
+    m_policyCenteredRest = false;
+    m_lastFocusedColumn = -1;
+    m_focusSide = FocusSide::None;
+    m_removedFocusedColumn = -1;
+    m_pendingRemovalReevaluate = false;
+    m_pendingViewportSnapshot = nullptr;
+    m_pendingViewportAnchor = nullptr;
+    m_pendingViewportComplete = false;
+    m_lastAvailableCross = 0;
+  }
+
   bool ScrollingLayout::adoptTabs(int columnIndex, const ColumnTabs& tabs) {
     if (columnIndex < 0 || columnIndex >= static_cast<int>(m_columns.size())) {
       return false;

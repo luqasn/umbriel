@@ -2718,6 +2718,8 @@ namespace umbriel {
         (m_layoutMode == LayoutMode::Scrolling && layoutConfig.mode != LayoutMode::Scrolling);
     const bool isMovingToScroll = (m_layoutMode != LayoutMode::Scrolling && layoutConfig.mode == LayoutMode::Scrolling);
     const bool fromStacking = m_layoutMode == LayoutMode::Stacking;
+    const bool singleGroupEnabled =
+        m_layoutMode == LayoutMode::Scrolling && !m_layoutConfig.tabs.singleGroup && layoutConfig.tabs.singleGroup;
     m_layoutConfig = std::move(layoutConfig);
     // The event payload is built when the idle runs, so scheduling here reports the mode this call installs, whether
     // it reconfigures the existing layout or replaces it below.
@@ -2726,6 +2728,9 @@ namespace umbriel {
       m_layout->setConfig(&m_layoutConfig);
       m_layout->setConstraints(&viewLayoutConstraints);
       if (ScrollingLayout* scrolling = scrollingLayout(); scrolling != nullptr) {
+        if (singleGroupEnabled) {
+          scrolling->collapseToSingleGroup(m_focusedView);
+        }
         const int focusedColumn = m_focusedView != nullptr ? scrolling->columnOf(m_focusedView) : -1;
         const bool reconcile = centerFocusedChanged || strutsChanged || directionChanged;
         if (reconcile && focusedColumn >= 0) {
