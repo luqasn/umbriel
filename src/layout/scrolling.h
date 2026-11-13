@@ -39,7 +39,7 @@ namespace umbriel {
     bool setWidthFromPixels(int columnIndex, int viewportPrimary, int width);
     bool isFullWidth(int columnIndex) const override;
     // Whether this workspace keeps every tiled window in one group filling the layout area.
-    bool singleGroup() const;
+    bool singleGroupEnabled() const;
 
     struct NamedColumnPlacement {
       size_t column = 0;
@@ -57,7 +57,7 @@ namespace umbriel {
         const View* joining, std::string_view name, std::optional<int> order, const NamedColumnFactsFn& facts
     ) const;
     int maxScroll(int viewportPrimary) const {
-      return singleGroup() ? 0 : std::max(0, totalWidth(viewportPrimary) - viewportPrimary);
+      return singleGroupEnabled() ? 0 : std::max(0, totalWidth(viewportPrimary) - viewportPrimary);
     }
     // Scroll offsets where a strip gesture can rest on `columnIndex`: flush with the viewport's leading and trailing
     // edges, within [0, maxScroll]. A column at least as wide as the viewport (fullscreen, maximize-to-edges) overhangs

@@ -2968,7 +2968,7 @@ namespace umbriel {
           }
           capturedLayout = batch.capture.snapshot != nullptr
               && refuge->layout().restoreState(*batch.capture.snapshot, batch.capture.members);
-          if (capturedLayout && refuge->scrollingLayout() != nullptr && refuge->layoutConfig().tabs.singleGroup) {
+          if (capturedLayout && refuge->isSingleGroup()) {
             refuge->scrollingLayout()->collapseToSingleGroup(batch.focused);
           }
         } else if (refuge != nullptr && !protectedFallback) {
@@ -3390,7 +3390,7 @@ namespace umbriel {
           }
         } else {
           if (ScrollingLayout* scrolling = workspace->scrollingLayout(); scrolling != nullptr) {
-            if (workspace->layoutConfig().tabs.singleGroup) {
+            if (workspace->isSingleGroup()) {
               View* active = workspace->focusedView();
               if (active == nullptr || scrolling->columnOf(active) < 0) {
                 active = exactViews.empty() ? nullptr : exactViews.front();

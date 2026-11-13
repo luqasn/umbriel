@@ -423,7 +423,7 @@ namespace umbriel {
       return result;
     }
     // A single-group workspace has one place for every drop: among the group's tabs.
-    const bool singleGroup = workspace.scrollingLayout() != nullptr && workspace.layoutConfig().tabs.singleGroup;
+    const bool singleGroup = workspace.isSingleGroup();
     // Layout mode is a genuine policy fork here. Each layout wants different
     // drop targets and hint shapes.
     if (DwindleLayout* dwindle = workspace.dwindleLayout()) {
