@@ -280,6 +280,10 @@ namespace umbriel {
     return scrollingLayout() != nullptr && m_layoutConfig.scrolling.direction == ScrollingDirection::Vertical;
   }
 
+  bool Workspace::isSingleGroup() const {
+    return m_layoutMode == LayoutMode::Scrolling && m_layoutConfig.tabs.singleGroup;
+  }
+
   void Workspace::setActive(bool active) {
     if (m_active == active) {
       return;
@@ -2022,6 +2026,22 @@ namespace umbriel {
 
   bool Workspace::swapFocusedInDirection(bool horizontal, int direction) {
     flushArrange();
+    if (isSingleGroup()) {
+      if (m_focusedView == nullptr || !m_focusedView->tiled()) {
+        return false;
+      }
+      const int column = m_layout->columnOf(m_focusedView);
+      if (column < 0) {
+        return false;
+      }
+      View* neighbor = tabNeighbor(m_layout->columns()[static_cast<size_t>(column)], m_focusedView, direction, false);
+      if (neighbor == nullptr || !m_layout->swapViews(m_focusedView, neighbor)) {
+        return false;
+      }
+      markArrange();
+      ensureFocusedVisible();
+      return true;
+    }
     // Geometry only: the focus memory directional focus applies could pick a diagonal tile.
     std::vector<LayoutTarget> targets;
     for (const Column& column : m_layout->columns()) {
@@ -2128,7 +2148,8 @@ namespace umbriel {
   }
 
   bool Workspace::moveFocusedColumn(int direction) {
-    if (ScrollingLayout* scrolling = scrollingLayout(); scrolling != nullptr && scrolling->singleGroup()) {
+    // A single-group workspace has one column, so a column move has nowhere to go.
+    if (isSingleGroup()) {
       return false;
     }
     // Dwindle has no columns to carry, so a column move is the window move.
@@ -2138,9 +2159,23 @@ namespace umbriel {
     return scrollingVertical() ? moveWithinLane(direction) : moveLaneAlongStrip(direction);
   }
 
+  bool Workspace::moveSingleGroupTab(int direction) {
+    if (m_focusedView == nullptr || !m_focusedView->tiled()) {
+      return false;
+    }
+    if (!m_layout->moveViewVertical(m_focusedView, direction)) {
+      return false;
+    }
+    markArrange();
+    return true;
+  }
+
   bool Workspace::moveFocusedHorizontal(int direction) {
     if (m_focusedView != nullptr && m_focusedView->floating()) {
       return m_focusedView->moveFloatingToEdge(direction < 0 ? WLR_EDGE_LEFT : WLR_EDGE_RIGHT);
+    }
+    if (isSingleGroup()) {
+      return moveSingleGroupTab(direction);
     }
     if (DwindleLayout* dwindle = dwindleLayout()) {
       if (!dwindle->moveView(m_focusedView, true, direction)) {
@@ -2158,6 +2193,9 @@ namespace umbriel {
   bool Workspace::moveFocusedVertical(int direction) {
     if (m_focusedView != nullptr && m_focusedView->floating()) {
       return m_focusedView->moveFloatingToEdge(direction < 0 ? WLR_EDGE_TOP : WLR_EDGE_BOTTOM);
+    }
+    if (isSingleGroup()) {
+      return moveSingleGroupTab(direction);
     }
     return scrollingVertical() ? moveLaneAlongStrip(direction) : moveWithinLane(direction);
   }

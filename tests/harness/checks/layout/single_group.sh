@@ -2,9 +2,10 @@
 # harness: config-watch=true
 # A single-group workspace holds every window in one tab group filling the layout area. Enabling it on a live
 # multi-column workspace collapses both columns into the group showing the window that had focus; a second client
-# then shares the first's box as a hidden tab, and clicking its bar slot switches which one shows. Window rules and
-# actions that need several columns or a resizable one are inert: the named-column order rule is ignored and the
-# inapplicable actions leave the full-area box and tab state untouched, while the bar actions still apply.
+# then shares the first's box as a hidden tab, and clicking its bar slot switches which one shows. The directional
+# window actions focus, reorder, and swap its tabs without leaving the group. Window rules and actions that need
+# several columns or a resizable one are inert: the named-column order rule is ignored and the inapplicable actions
+# leave the full-area box and tab state untouched, while the bar actions still apply.
 set -euo pipefail
 
 readonly BTN_LEFT=272
@@ -199,6 +200,36 @@ if [[ $before != "$after" ]]; then
   exit 1
 fi
 
+# The usual focus keys walk the tabs, and a move reorders the shown one without leaving the group.
+"$UMBRIEL" msg window-focus-right > /dev/null
+"$UMBRIEL" settle
+wait_for_one_group group-b
+
+"$UMBRIEL" msg window-move-left > /dev/null
+"$UMBRIEL" settle
+wait_for_one_group group-b
+order=$("$UMBRIEL" windows --json | jq -c 'sort_by(.tab_index) | map(.title)')
+if [[ $order != '["group-b","group-a"]' ]]; then
+  echo "expected the move to put group-b first, got $order"
+  exit 1
+fi
+
+# Swapping exchanges the shown tab with its neighbour and keeps the box.
+"$UMBRIEL" msg window-swap-right > /dev/null
+"$UMBRIEL" settle
+wait_for_one_group group-b
+order=$("$UMBRIEL" windows --json | jq -c 'sort_by(.tab_index) | map(.title)')
+if [[ $order != '["group-a","group-b"]' ]]; then
+  echo "expected the swap to put group-a first, got $order"
+  exit 1
+fi
+
+swapped=$("$UMBRIEL" windows --json | jq -c 'map([.x, .y, .w, .h]) | unique')
+if [[ $before != "$swapped" ]]; then
+  echo "expected the group box to stay put through a swap, had $before, now $swapped"
+  exit 1
+fi
+
 # Actions that need several columns, a resizable one, or a stacking split leave the group untouched.
 before=$(state)
 actions=(
@@ -255,4 +286,4 @@ if [[ $(state) != "$before" ]]; then
   exit 1
 fi
 
-echo "a reload collapsed two columns into one full-area group showing the previously focused window; a bar slot switched tabs, and inapplicable rules and actions were ignored"
+echo "a reload collapsed two columns into one full-area group showing the previously focused window; a bar slot switched tabs, directional window actions walked, reordered, and swapped the tabs, and inapplicable rules and actions were ignored"

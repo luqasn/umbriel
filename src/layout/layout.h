@@ -142,6 +142,9 @@ namespace umbriel {
   View* columnEntry(const Column& column);
   // True for a tab its group is not showing.
   bool hiddenTab(const Column& column, const View* view);
+  // The view one tab place from `view` in its group, `direction` negative for earlier. Wraps at the group's ends when
+  // `wrap`. Null outside a group, with a single tab, or at an end that does not wrap.
+  View* tabNeighbor(const Column& column, const View* view, int direction, bool wrap);
   // Whether a tab group of `tabs` tabs draws its bar: its own choice when it has one, else the configuration's.
   bool tabBarShown(const ResolvedLayoutConfig& config, size_t tabs, std::optional<bool> bar);
 

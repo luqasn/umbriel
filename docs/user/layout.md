@@ -264,7 +264,7 @@ middle_click_closes = false
 | ---------------------- | ---------- | ------------------------------------------------------------------------------------------------------------------ |
 | `default_display`      | `"normal"` | How new columns and master areas show their windows: `"normal"`, or `"tabbed"` to start each as a tab group.       |
 | `new_tab_position`     | `"end"`    | Where a consumed, pulled, or dropped window joins a tab group: `"end"`, or `"after_active"` beside the active tab. |
-| `wrap_focus`           | `true`     | Wrap `column-focus-tab-next` and `column-focus-tab-previous` at the ends.                                          |
+| `wrap_focus`           | `true`     | Wrap `column-focus-tab-next`, `column-focus-tab-previous`, and window focus at a single group's ends.              |
 | `scroll_switches_tabs` | `true`     | Step through tabs with the wheel over the bar.                                                                     |
 | `middle_click_closes`  | `false`    | Close a tab with a middle click on its slot.                                                                       |
 | `single_group`         | `false`    | Keep a scrolling workspace's windows in one tab group filling the layout area.                                     |
@@ -272,6 +272,8 @@ middle_click_closes = false
 ### Single-group workspaces
 
 `single_group = true` makes a scrolling workspace hold exactly one tab group that fills the layout area. Every tiled window that arrives joins it as a tab — opened there, moved or dragged in, unfloated, or returned from a scratchpad — and the workspace never grows a second column, a row beside the group, or a strip to scroll. The group stops where any other full tile stops: inside struts and panel exclusive zones, with `gap` and borders applied, and the tab bar takes its space on its configured edge on either workspace axis. New windows join where `new_tab_position` says, and the focused window is the shown tab.
+
+The usual directional window actions operate the tabs. `window-focus-left` and `window-focus-up` select the previous tab, `window-focus-right` and `window-focus-down` the next, on either workspace axis; the step wraps at the ends when `wrap_focus` is on. `window-move-left`/`right`/`up`/`down` reorder the shown tab one place in that direction without taking it out of the group, and `window-swap-left`/`right`/`up`/`down` exchange it with its neighbour. `column-focus-tab-next`, `column-focus-tab-previous`, `column-focus-tab`, and `column-move-tab-*` keep their tab-group meaning, while the column-scoped focus, move, and reorder actions have only one column to act on and do nothing.
 
 Turning the option on for a workspace that already holds several columns collapses them into the group on config reload or a workspace-rule change: columns in strip order, each column's rows top to bottom, with the focused window shown. A workspace restored after its output was disconnected also comes back as one group. Turning the option off leaves that one full-width group standing, its tabs and order intact; no earlier arrangement is restored.
 

@@ -109,6 +109,8 @@ namespace umbriel {
     const ResolvedLayoutConfig& layoutConfig() const { return m_layoutConfig; }
     bool inTabGroup(const View* view) const;
     LayoutMode layoutMode() const { return m_layoutMode; }
+    // The scrolling layout holds one full-area tab group on this workspace.
+    bool isSingleGroup() const;
     // Runtime layout override set by workspace-set-layout. Empty = the configured mode applies. A config reload clears
     // it and reasserts the configured mode; window open/close keeps it (reconcileDynamic re-applies).
     std::optional<LayoutMode> layoutModeOverride() const { return m_layoutModeOverride; }
@@ -327,6 +329,8 @@ namespace umbriel {
     View* preferRecentPeer(View* target) const;
     bool moveLaneAlongStrip(int direction);
     bool moveWithinLane(int direction);
+    // Reorder the shown tab one place, for a window move in a single-group workspace.
+    bool moveSingleGroupTab(int direction);
     // Take `view` out of the layout while holding visible lanes still.
     void detachFromLayout(View* view);
     // Snap or animate every tiled member of the layout into its slot from wherever it is presented now.

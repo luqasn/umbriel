@@ -66,6 +66,8 @@ namespace umbriel {
 
     void insertView(View* view, int columnIndex) override;
     void insertViewIntoColumn(View* view, int columnIndex, int rowIndex) override;
+    std::optional<View*> focusHorizontalLeaf(const View* view, int direction) const override;
+    std::optional<View*> focusVerticalLeaf(const View* view, int direction) const override;
     bool consume(View* view, int direction) override;
     bool expel(View* view, int direction) override;
     bool consumeFrom(View* view, int direction) override;

@@ -963,6 +963,96 @@ UMBRIEL_TEST(arrivalsJoinOneFullAreaGroup) {
   CHECK_EQ(fixture.column().tabs.unitCount(fixture.column().views.size()), size_t{1});
 }
 
+UMBRIEL_TEST(windowFocusDirectionsWalkTabsOnEitherWorkspaceAxis) {
+  for (const auto axis : {ScrollingDirection::Horizontal, ScrollingDirection::Vertical}) {
+    SingleGroupFixture fixture(axis);
+    fixture.config.tabs.wrapFocus = false;
+    fixture.open(3);
+    // window-focus-left and window-focus-up ask their axis's leaf for the previous tab.
+    CHECK(fixture.layout.focusHorizontalLeaf(stub(1), -1) == std::optional<View*>(stub(0)));
+    CHECK(fixture.layout.focusVerticalLeaf(stub(1), -1) == std::optional<View*>(stub(0)));
+    // window-focus-right and window-focus-down ask for the next tab.
+    CHECK(fixture.layout.focusHorizontalLeaf(stub(1), 1) == std::optional<View*>(stub(2)));
+    CHECK(fixture.layout.focusVerticalLeaf(stub(1), 1) == std::optional<View*>(stub(2)));
+    // Either end stops, and a single tab is not a step.
+    CHECK(fixture.layout.focusHorizontalLeaf(stub(0), -1) == std::optional<View*>(nullptr));
+    CHECK(fixture.layout.focusVerticalLeaf(stub(2), 1) == std::optional<View*>(nullptr));
+  }
+  SingleGroupFixture single;
+  single.open(1);
+  CHECK(single.layout.focusHorizontalLeaf(stub(0), 1) == std::optional<View*>(nullptr));
+}
+
+UMBRIEL_TEST(windowFocusWrapsTabsWhenWrapFocusIsOn) {
+  for (const auto axis : {ScrollingDirection::Horizontal, ScrollingDirection::Vertical}) {
+    SingleGroupFixture noWrap(axis);
+    noWrap.config.tabs.wrapFocus = false;
+    noWrap.open(3);
+    CHECK(noWrap.layout.focusHorizontalLeaf(stub(0), -1) == std::optional<View*>(nullptr));
+    CHECK(noWrap.layout.focusVerticalLeaf(stub(2), 1) == std::optional<View*>(nullptr));
+
+    SingleGroupFixture wrap(axis);
+    wrap.config.tabs.wrapFocus = true;
+    wrap.open(3);
+    CHECK(wrap.layout.focusHorizontalLeaf(stub(0), -1) == std::optional<View*>(stub(2)));
+    CHECK(wrap.layout.focusVerticalLeaf(stub(2), 1) == std::optional<View*>(stub(0)));
+  }
+}
+
+UMBRIEL_TEST(windowMoveDirectionsReorderTheShownTabOnEitherWorkspaceAxis) {
+  for (const auto axis : {ScrollingDirection::Horizontal, ScrollingDirection::Vertical}) {
+    SingleGroupFixture fixture(axis);
+    fixture.open(3);
+    CHECK(fixture.layout.selectTab(stub(1)));
+    CHECK_EQ(shownTab(fixture.column()), stub(1));
+    // window-move-right and window-move-down move the tab one place later.
+    CHECK(fixture.layout.moveViewVertical(stub(1), 1));
+    CHECK_EQ(fixture.layout.rowOf(stub(1)), 2);
+    CHECK_EQ(shownTab(fixture.column()), stub(1));
+    CHECK(!fixture.layout.moveViewVertical(stub(1), 1));
+    // window-move-left and window-move-up move it one place earlier.
+    CHECK(fixture.layout.moveViewVertical(stub(1), -1));
+    CHECK_EQ(fixture.layout.rowOf(stub(1)), 1);
+    CHECK(fixture.layout.moveViewVertical(stub(1), -1));
+    CHECK_EQ(fixture.layout.rowOf(stub(1)), 0);
+    CHECK(!fixture.layout.moveViewVertical(stub(1), -1));
+    // It never leaves the group.
+    CHECK_EQ(shownTab(fixture.column()), stub(1));
+    CHECK_EQ(fixture.layout.columns().size(), size_t{1});
+    CHECK_EQ(fixture.column().tabs.groups().size(), size_t{1});
+    CHECK_EQ(fixture.column().tabs.groups().front().count, size_t{3});
+    CHECK_EQ(fixture.column().tabs.unitCount(fixture.column().views.size()), size_t{1});
+  }
+}
+
+UMBRIEL_TEST(windowSwapDirectionsExchangeTheShownTabWithItsNeighbour) {
+  for (const auto axis : {ScrollingDirection::Horizontal, ScrollingDirection::Vertical}) {
+    SingleGroupFixture fixture(axis);
+    fixture.open(3);
+    CHECK(fixture.layout.selectTab(stub(1)));
+    // window-swap-right and window-swap-down trade places with the next tab.
+    View* next = umbriel::tabNeighbor(fixture.column(), stub(1), 1, false);
+    CHECK(next == stub(2));
+    CHECK(fixture.layout.swapViews(stub(1), next));
+    CHECK_EQ(fixture.layout.rowOf(stub(1)), 2);
+    CHECK_EQ(fixture.layout.rowOf(stub(2)), 1);
+    CHECK_EQ(shownTab(fixture.column()), stub(1));
+    // window-swap-left and window-swap-up trade places with the previous tab.
+    View* previous = umbriel::tabNeighbor(fixture.column(), stub(1), -1, false);
+    CHECK(previous == stub(2));
+    CHECK(fixture.layout.swapViews(stub(1), previous));
+    CHECK_EQ(fixture.layout.rowOf(stub(1)), 1);
+    CHECK_EQ(fixture.layout.rowOf(stub(2)), 2);
+    CHECK_EQ(shownTab(fixture.column()), stub(1));
+    CHECK_EQ(fixture.layout.columns().size(), size_t{1});
+    CHECK_EQ(fixture.column().tabs.groups().size(), size_t{1});
+    CHECK_EQ(fixture.column().tabs.groups().front().count, size_t{3});
+    // The ends have no neighbour to swap with, so a swap there changes nothing.
+    CHECK(umbriel::tabNeighbor(fixture.column(), stub(0), -1, false) == nullptr);
+    CHECK(umbriel::tabNeighbor(fixture.column(), stub(2), 1, false) == nullptr);
+  }
+}
+
 UMBRIEL_TEST(theNamedColumnLookupYieldsNothingInASingleGroup) {
   const auto facts = [](const View* view) -> ScrollingLayout::NamedColumnFacts {
     if (view == stub(0) || view == stub(1)) {

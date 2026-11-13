@@ -140,6 +140,30 @@ namespace umbriel {
     return row && column.tabs.hidden(*row);
   }
 
+  View* tabNeighbor(const Column& column, const View* view, int direction, bool wrap) {
+    if (view == nullptr || direction == 0) {
+      return nullptr;
+    }
+    const std::optional<size_t> row = rowIn(column, view);
+    if (!row) {
+      return nullptr;
+    }
+    const TabGroup* group = column.tabs.groupAt(*row);
+    if (group == nullptr || group->count < 2) {
+      return nullptr;
+    }
+    const auto first = static_cast<int>(group->first);
+    const auto count = static_cast<int>(group->count);
+    int target = static_cast<int>(*row) + (direction < 0 ? -1 : 1);
+    if (target < first || target >= first + count) {
+      if (!wrap) {
+        return nullptr;
+      }
+      target = first + ((target - first) % count + count) % count;
+    }
+    return column.views[static_cast<size_t>(target)];
+  }
+
   std::vector<View*> Layout::focusPeers(const View* from, const View* target) const {
     if (target == nullptr) {
       return {};

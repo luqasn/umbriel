@@ -238,6 +238,23 @@ namespace umbriel {
 
   bool ScrollingLayout::singleGroup() const { return m_config != nullptr && m_config->tabs.singleGroup; }
 
+  // A single group has no axis inside it: a directional focus asks for the previous or next tab whichever workspace
+  // axis the strip would otherwise use.
+  std::optional<View*> ScrollingLayout::focusHorizontalLeaf(const View* view, int direction) const {
+    if (!singleGroup()) {
+      return std::nullopt;
+    }
+    const int columnIndex = columnOf(view);
+    if (columnIndex < 0) {
+      return std::nullopt;
+    }
+    return tabNeighbor(m_columns[static_cast<size_t>(columnIndex)], view, direction, m_config->tabs.wrapFocus);
+  }
+
+  std::optional<View*> ScrollingLayout::focusVerticalLeaf(const View* view, int direction) const {
+    return focusHorizontalLeaf(view, direction);
+  }
+
   std::optional<ScrollingLayout::NamedColumnPlacement> ScrollingLayout::namedColumnPlacement(
       const View* joining, std::string_view name, std::optional<int> order, const NamedColumnFactsFn& facts
   ) const {
