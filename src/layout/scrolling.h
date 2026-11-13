@@ -114,6 +114,9 @@ namespace umbriel {
     // Restore the tab groups of a column rebuilt row by row, replacing its initial display mode.
     // False when `tabs` reaches past the column's rows.
     bool adoptTabs(int columnIndex, const ColumnTabs& tabs);
+    // Merge every column, in strip order and each top to bottom, into one group filling the workspace. Inner tab
+    // groups flatten, per-group bar overrides drop, and `active` becomes the shown tab when it is in the layout.
+    void collapseToSingleGroup(View* active);
 
   private:
     struct Target {
