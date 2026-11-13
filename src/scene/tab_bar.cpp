@@ -216,13 +216,18 @@ namespace umbriel {
   }
 
   TabBarDrop TabBar::dropAt(double localX, double localY) const {
-    const int barLength = length();
     const TabDropPoint point = tabBarDropAt(
-        barLength, thickness(), m_style.tabGap, visibleStrip(), m_model.tabs.size(), across() ? localX : localY
+        length(), thickness(), m_style.tabGap, visibleStrip(), m_model.tabs.size(), across() ? localX : localY
     );
-    const int start =
-        std::clamp(point.boundary - kDropMarkerThickness / 2, 0, std::max(0, barLength - kDropMarkerThickness));
-    return {.row = point.row, .marker = span(start, kDropMarkerThickness)};
+    return {.row = point.row, .marker = markerForRow(point.row)};
+  }
+
+  wlr_box TabBar::markerForRow(size_t row) const {
+    const int barLength = length();
+    const int boundary =
+        tabBarDropBoundary(barLength, thickness(), m_style.tabGap, visibleStrip(), m_model.tabs.size(), row);
+    const int start = std::clamp(boundary - kDropMarkerThickness / 2, 0, std::max(0, barLength - kDropMarkerThickness));
+    return span(start, kDropMarkerThickness);
   }
 
   const std::array<float, 4>& TabBar::fillColor(size_t index) const {

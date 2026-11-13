@@ -294,6 +294,50 @@ namespace umbriel {
     return std::nullopt;
   }
 
+  std::optional<TabDrop> TabPresenter::singleGroupDropSlot(double lx, double ly) const {
+    const Layout& layout = m_workspace.layout();
+    for (const Column& column : layout.columns()) {
+      for (const TabGroup& group : column.tabs.groups()) {
+        if (group.count == 0 || group.active >= column.views.size()) {
+          continue;
+        }
+        const View* member = column.views[group.active];
+        const TabBar* bar = barOf(member);
+        const wlr_box box = bar != nullptr ? bar->layoutBox() : wlr_box{};
+        const bool drawn = box.width > 0 && box.height > 0;
+        const TabBarDropArea area{
+            .x = box.x,
+            .y = box.y,
+            .width = box.width,
+            .height = box.height,
+            .across = tabBarAcross(drawn ? bar->style().position : m_workspace.layoutConfig().tabs.barPosition),
+            .gap = drawn ? bar->style().tabGap : 0,
+            .strip = drawn ? bar->visibleStrip() : TabStrip{},
+            .tabs = group.count,
+        };
+        const TabGroupRows rows{
+            .first = group.first,
+            .count = group.count,
+            .active = group.active,
+            .afterActive = m_workspace.layoutConfig().tabs.newTabPosition == NewTabPosition::AfterActive,
+        };
+        const size_t row = singleGroupDropRow(area, rows, lx, ly);
+        wlr_box hint = layout.targetBox(member);
+        if (drawn) {
+          const wlr_box marker = bar->markerForRow(row - group.first);
+          hint = {
+              .x = box.x + marker.x,
+              .y = box.y + marker.y,
+              .width = marker.width,
+              .height = marker.height,
+          };
+        }
+        return TabDrop{.row = static_cast<int>(row), .member = member, .hint = hint};
+      }
+    }
+    return std::nullopt;
+  }
+
   View* TabPresenter::stepTarget(int direction) const { return stepFrom(m_workspace.focusedView(), direction); }
 
   View* TabPresenter::stepFrom(const View* member, int direction) const {

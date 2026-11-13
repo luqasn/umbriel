@@ -65,6 +65,10 @@ namespace umbriel {
     // point is on none of them. Over a bar it lands beside the slot under the point; over the middle of a group it
     // lands where new tabs go. Near a group's ends it joins nothing, so the drop can land beside the group instead.
     std::optional<TabDrop> dropSlot(int column, double lx, double ly) const;
+    // Where a window dropped at the layout point onto a single-group workspace joins its group: beside the bar slot
+    // under the point when it is on or near the bar, else where new tabs go. The hint marks that slot, or covers the
+    // group when it draws no bar. Null when the workspace holds no tab group.
+    std::optional<TabDrop> singleGroupDropSlot(double lx, double ly) const;
     // The tab `direction` steps from the focused one, wrapping at the ends when tabs are set to. Null outside a
     // tab group, at an end that does not wrap, or with a single tab.
     View* stepTarget(int direction) const;
