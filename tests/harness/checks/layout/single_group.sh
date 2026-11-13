@@ -287,8 +287,8 @@ group_box=$("$UMBRIEL" windows --json | jq -c 'map([.x, .y, .w, .h]) | unique')
 read -r left width bar_y <<< "$(bar_span)"
 start_x=$((left + width / 4))
 end_x=$((left + width * 3 / 4))
-pointer move "$start_x" "$bar_y" press "$BTN_LEFT" move "$((start_x + 60))" "$bar_y" pause 200 \
-  move "$end_x" "$bar_y" pause 200 release "$BTN_LEFT"
+pointer move "$start_x" "$bar_y" press "$BTN_LEFT" move "$((start_x + 60))" "$bar_y" \
+  move "$end_x" "$bar_y" release "$BTN_LEFT"
 "$UMBRIEL" settle
 
 windows=$("$UMBRIEL" windows --json)
@@ -325,8 +325,8 @@ read -r group_x group_y group_h <<< "$(
 drop_x=$((group_x + 640))
 # The top eighth is off the bar and outside the group's middle, so only the new-tab position can hold the drop.
 drop_y=$((group_y + group_h / 8))
-pointer mod logo move "$start_x" "$start_y" press "$BTN_LEFT" move "$((start_x - 80))" "$start_y" pause 200 \
-  move "$drop_x" "$drop_y" pause 300 release "$BTN_LEFT" mod none
+pointer mod logo move "$start_x" "$start_y" press "$BTN_LEFT" move "$((start_x - 80))" "$start_y" \
+  move "$drop_x" "$drop_y" release "$BTN_LEFT" mod none
 "$UMBRIEL" settle
 wait_for_one_group group-c 3
 
@@ -344,8 +344,8 @@ fi
 order=$("$UMBRIEL" windows --json | jq -c 'map(select(.title | startswith("group-")) | [.title, .tab_index, .tab_hidden]) | sort_by(.[1])')
 box=$("$UMBRIEL" windows --json | jq -c 'map([.x, .y, .w, .h]) | unique')
 read -r x y <<< "$("$UMBRIEL" windows --json | jq -r '.[] | select(.title == "group-c") | "\(.x + (.w / 2 | floor)) \(.y + (.h / 2 | floor))"')"
-pointer mod logo move "$x" "$y" press "$BTN_LEFT" move "$((x + 80))" "$y" pause 200 \
-  move "$((x + 120))" "$((y + 60))" pause 200 release "$BTN_LEFT" mod none
+pointer mod logo move "$x" "$y" press "$BTN_LEFT" move "$((x + 80))" "$y" \
+  move "$((x + 120))" "$((y + 60))" release "$BTN_LEFT" mod none
 "$UMBRIEL" settle
 
 windows=$("$UMBRIEL" windows --json)
