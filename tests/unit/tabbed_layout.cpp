@@ -962,6 +962,42 @@ UMBRIEL_TEST(arrivalsJoinOneFullAreaGroup) {
   CHECK_EQ(fixture.column().tabs.unitCount(fixture.column().views.size()), size_t{1});
 }
 
+UMBRIEL_TEST(windowFocusDirectionsWalkTabsOnEitherWorkspaceAxis) {
+  for (const auto axis : {ScrollingDirection::Horizontal, ScrollingDirection::Vertical}) {
+    SingleGroupFixture fixture(axis);
+    fixture.config.tabs.wrapFocus = false;
+    fixture.open(3);
+    // window-focus-left and window-focus-up ask their axis's leaf for the previous tab.
+    CHECK(fixture.layout.focusHorizontalLeaf(stub(1), -1) == std::optional<View*>(stub(0)));
+    CHECK(fixture.layout.focusVerticalLeaf(stub(1), -1) == std::optional<View*>(stub(0)));
+    // window-focus-right and window-focus-down ask for the next tab.
+    CHECK(fixture.layout.focusHorizontalLeaf(stub(1), 1) == std::optional<View*>(stub(2)));
+    CHECK(fixture.layout.focusVerticalLeaf(stub(1), 1) == std::optional<View*>(stub(2)));
+    // Either end stops, and a single tab is not a step.
+    CHECK(fixture.layout.focusHorizontalLeaf(stub(0), -1) == std::optional<View*>(nullptr));
+    CHECK(fixture.layout.focusVerticalLeaf(stub(2), 1) == std::optional<View*>(nullptr));
+  }
+  SingleGroupFixture single;
+  single.open(1);
+  CHECK(single.layout.focusHorizontalLeaf(stub(0), 1) == std::optional<View*>(nullptr));
+}
+
+UMBRIEL_TEST(windowFocusWrapsTabsWhenWrapFocusIsOn) {
+  for (const auto axis : {ScrollingDirection::Horizontal, ScrollingDirection::Vertical}) {
+    SingleGroupFixture noWrap(axis);
+    noWrap.config.tabs.wrapFocus = false;
+    noWrap.open(3);
+    CHECK(noWrap.layout.focusHorizontalLeaf(stub(0), -1) == std::optional<View*>(nullptr));
+    CHECK(noWrap.layout.focusVerticalLeaf(stub(2), 1) == std::optional<View*>(nullptr));
+
+    SingleGroupFixture wrap(axis);
+    wrap.config.tabs.wrapFocus = true;
+    wrap.open(3);
+    CHECK(wrap.layout.focusHorizontalLeaf(stub(0), -1) == std::optional<View*>(stub(2)));
+    CHECK(wrap.layout.focusVerticalLeaf(stub(2), 1) == std::optional<View*>(stub(0)));
+  }
+}
+
 UMBRIEL_TEST(aSingleGroupFillsTheContentArea) {
   for (const auto direction : {ScrollingDirection::Horizontal, ScrollingDirection::Vertical}) {
     SingleGroupFixture fixture(direction);
