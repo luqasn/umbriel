@@ -422,6 +422,8 @@ namespace umbriel {
       // Floating workspaces offer no tiled drop target or hint.
       return result;
     }
+    // A single-group workspace has one place for every drop: among the group's tabs.
+    const bool singleGroup = workspace.scrollingLayout() != nullptr && workspace.layoutConfig().tabs.singleGroup;
     // Layout mode is a genuine policy fork here. Each layout wants different
     // drop targets and hint shapes.
     if (DwindleLayout* dwindle = workspace.dwindleLayout()) {
@@ -442,6 +444,24 @@ namespace umbriel {
       result.hintBox = target.hint;
     } else if (const ScrollingLayout* scrolling = workspace.scrollingLayout()) {
       const ScrollingLayout& layout = *scrolling;
+      if (singleGroup) {
+        // Beside the bar slot under the pointer, or where new tabs go, with the hint over the group's own slot instead
+        // of a would-be column beside it.
+        result.column = 0;
+        if (const std::optional<TabDrop> drop = workspace.tabs().singleGroupDropSlot(worldX, worldY)) {
+          result.row = drop->row;
+          result.tab = drop->member;
+          result.hintBox = drop->hint;
+        } else {
+          // No group yet: the arrival starts it, over the area it will fill.
+          result.row = 0;
+          result.hintBox = layout.contentArea(usable);
+        }
+        if (options.clipHintToUsable) {
+          result.hintBox = clampHintBox(result.hintBox, visible);
+        }
+        return result;
+      }
       const double scroll = layout.scroll();
       const ScrollingTarget target =
           computeScrollingTarget(workspace, layout, usable, visible, scroll, worldX, worldY, options);
@@ -500,7 +520,7 @@ namespace umbriel {
 
     // Tabs share one box, so a drop over a tab group's bar or middle picks its place among the tabs rather than a row
     // boundary.
-    if (result.row >= 0) {
+    if (result.row >= 0 && !singleGroup) {
       if (const std::optional<TabDrop> tab = workspace.tabs().dropSlot(result.column, worldX, worldY)) {
         result.row = tab->row;
         result.tab = tab->member;
