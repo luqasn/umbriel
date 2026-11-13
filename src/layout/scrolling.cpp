@@ -248,9 +248,7 @@ namespace umbriel {
     if (columnIndex < 0) {
       return std::nullopt;
     }
-    return tabNeighbor(
-        m_columns[static_cast<size_t>(columnIndex)], view, direction, m_config->tabs.wrapFocus
-    );
+    return tabNeighbor(m_columns[static_cast<size_t>(columnIndex)], view, direction, m_config->tabs.wrapFocus);
   }
 
   std::optional<View*> ScrollingLayout::focusVerticalLeaf(const View* view, int direction) const {
