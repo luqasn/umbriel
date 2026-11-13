@@ -956,6 +956,9 @@ namespace umbriel {
       if (workspace->layout().tabbedContainers() == nullptr) {
         return reject(error, "tabs need a layout with columns: scrolling or master");
       }
+      if (ScrollingLayout* scrolling = workspace->scrollingLayout(); scrolling != nullptr && scrolling->singleGroup()) {
+        return true;
+      }
       workspace->setFocusedColumnTabbed(tabbed);
       return true;
     }
@@ -1522,6 +1525,10 @@ namespace umbriel {
 
     bool actionLayoutToggleSplit(Server& server, const Keybind& /*bind*/, std::string* error) {
       if (Workspace* workspace = activeWorkspace(server)) {
+        if (ScrollingLayout* scrolling = workspace->scrollingLayout();
+            scrolling != nullptr && scrolling->singleGroup()) {
+          return true;
+        }
         if (workspace->layoutMode() != LayoutMode::Dwindle) {
           return reject(error, "layout-toggle-split requires the dwindle layout");
         }

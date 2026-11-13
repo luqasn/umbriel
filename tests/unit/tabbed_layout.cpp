@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <memory>
+#include <string_view>
 extern "C" {
 #include <wlr/util/box.h>
 #include <wlr/util/edges.h>
@@ -1052,6 +1053,28 @@ UMBRIEL_TEST(windowSwapDirectionsExchangeTheShownTabWithItsNeighbour) {
   }
 }
 
+UMBRIEL_TEST(theNamedColumnLookupYieldsNothingInASingleGroup) {
+  const auto facts = [](const View* view) -> ScrollingLayout::NamedColumnFacts {
+    if (view == stub(0) || view == stub(1)) {
+      return {.name = std::string_view("browser"), .order = std::nullopt};
+    }
+    return {};
+  };
+  ScrollingFixture strip;
+  strip.layout.insertView(stub(0), 0);
+  strip.layout.insertView(stub(1), 1);
+  const std::optional<ScrollingLayout::NamedColumnPlacement> placement =
+      strip.layout.namedColumnPlacement(stub(9), "browser", std::nullopt, facts);
+  CHECK(placement.has_value());
+  CHECK_EQ(placement->column, size_t{0});
+  CHECK_EQ(placement->row, 1);
+
+  SingleGroupFixture group;
+  group.open(2);
+  CHECK(!group.layout.namedColumnPlacement(stub(9), "browser", std::nullopt, facts));
+  CHECK(!group.layout.namedColumnPlacement(stub(9), "browser", 10, facts));
+}
+
 UMBRIEL_TEST(aSingleGroupFillsTheContentArea) {
   for (const auto direction : {ScrollingDirection::Horizontal, ScrollingDirection::Vertical}) {
     SingleGroupFixture fixture(direction);
@@ -1151,6 +1174,90 @@ UMBRIEL_TEST(theFirstConfigureOfASingleGroupMatchesItsArrangedBox) {
   single.layout.arrange(kUsable);
   CHECK_EQ(paired.height, 700 - kReserve);
   CHECK_EQ(single.layout.targetBox(stub(1)).height, paired.height);
+}
+
+UMBRIEL_TEST(collapsingMergesColumnsInStripOrderAndShowsTheSuppliedWindow) {
+  ScrollingFixture fixture;
+  fixture.layout.insertView(stub(0), 0);
+  fixture.layout.insertViewIntoColumn(stub(1), 0, 1);
+  fixture.layout.insertView(stub(2), 1);
+  fixture.layout.insertViewIntoColumn(stub(3), 1, 1);
+  fixture.layout.insertView(stub(4), 2);
+  fixture.config.tabs.singleGroup = true;
+
+  fixture.layout.collapseToSingleGroup(stub(3));
+
+  CHECK_EQ(fixture.layout.columns().size(), size_t{1});
+  const Column& column = fixture.column();
+  CHECK(column.views == (std::vector<View*>{stub(0), stub(1), stub(2), stub(3), stub(4)}));
+  CHECK_EQ(column.tabs.groups().size(), size_t{1});
+  CHECK_EQ(column.tabs.groups().front().count, size_t{5});
+  CHECK_EQ(column.tabs.unitCount(column.views.size()), size_t{1});
+  CHECK_EQ(shownTab(column), stub(3));
+  CHECK_EQ(fixture.layout.widthFraction(0), 1.0);
+}
+
+UMBRIEL_TEST(collapsingFlattensInnerTabGroupsAndDropsTheirBarOverrides) {
+  ScrollingFixture fixture;
+  fixture.layout.insertView(stub(0), 0);
+  fixture.layout.insertViewIntoColumn(stub(1), 0, 1);
+  CHECK(fixture.layout.setTabbed(stub(0), true));
+  CHECK(fixture.layout.setTabBar(stub(0), false));
+  fixture.layout.insertViewIntoColumn(stub(2), 0, 2);
+  fixture.layout.insertView(stub(3), 1);
+  fixture.layout.insertViewIntoColumn(stub(4), 1, 1);
+  CHECK(fixture.layout.setTabbed(stub(3), true));
+  CHECK(fixture.layout.setTabBar(stub(3), false));
+  fixture.config.tabs.singleGroup = true;
+
+  fixture.layout.collapseToSingleGroup(stub(4));
+
+  const Column& column = fixture.column();
+  CHECK(column.views == (std::vector<View*>{stub(0), stub(1), stub(2), stub(3), stub(4)}));
+  CHECK_EQ(column.tabs.groups().size(), size_t{1});
+  const TabGroup& group = column.tabs.groups().front();
+  CHECK_EQ(group.count, size_t{5});
+  CHECK_EQ(group.bar, std::optional<bool>{});
+  CHECK_EQ(shownTab(column), stub(4));
+}
+
+UMBRIEL_TEST(collapsingKeepsOnlyOccupiedColumnsAndHandlesAnEmptyWorkspace) {
+  ScrollingFixture fixture;
+  fixture.layout.insertView(stub(0), 0);
+  fixture.layout.insertView(stub(1), 1);
+  fixture.layout.insertView(stub(2), 2);
+  fixture.layout.removeView(stub(1));
+  fixture.config.tabs.singleGroup = true;
+
+  fixture.layout.collapseToSingleGroup(stub(2));
+
+  CHECK_EQ(fixture.layout.columns().size(), size_t{1});
+  CHECK(fixture.column().views == (std::vector<View*>{stub(0), stub(2)}));
+  CHECK_EQ(shownTab(fixture.column()), stub(2));
+
+  ScrollingFixture empty;
+  empty.config.tabs.singleGroup = true;
+  empty.layout.collapseToSingleGroup(nullptr);
+  CHECK(empty.layout.columns().empty());
+}
+
+UMBRIEL_TEST(turningTheOptionOffLeavesTheCollapsedGroupStanding) {
+  ScrollingFixture fixture;
+  fixture.layout.insertView(stub(0), 0);
+  fixture.layout.insertViewIntoColumn(stub(1), 0, 1);
+  fixture.layout.insertView(stub(2), 1);
+  fixture.config.tabs.singleGroup = true;
+  fixture.layout.collapseToSingleGroup(stub(1));
+  const std::vector<View*> order = fixture.column().views;
+
+  fixture.config.tabs.singleGroup = false;
+  fixture.layout.arrange(kUsable);
+
+  CHECK_EQ(fixture.layout.columns().size(), size_t{1});
+  CHECK(fixture.column().views == order);
+  CHECK_EQ(fixture.column().tabs.groups().size(), size_t{1});
+  CHECK_EQ(shownTab(fixture.column()), stub(1));
+  CHECK_EQ(fixture.layout.targetBox(stub(1)).width, 1260);
 }
 
 UMBRIEL_TEST(aSingleGroupRefusesEveryExtentChange) {
