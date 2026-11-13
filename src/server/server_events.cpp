@@ -2968,6 +2968,9 @@ namespace umbriel {
           }
           capturedLayout = batch.capture.snapshot != nullptr
               && refuge->layout().restoreState(*batch.capture.snapshot, batch.capture.members);
+          if (capturedLayout && refuge->scrollingLayout() != nullptr && refuge->layoutConfig().tabs.singleGroup) {
+            refuge->scrollingLayout()->collapseToSingleGroup(batch.focused);
+          }
         } else if (refuge != nullptr && !protectedFallback) {
           // Only exhausted inventories need to mix with a native workspace.
           // Keep its clean layout available for the existing restore path.
@@ -3386,12 +3389,20 @@ namespace umbriel {
             }
           }
         } else {
-          if (workspace->scrollingLayout() != nullptr) {
-            restoredViewports.push_back({
-                .snapshot = exact->snapshot,
-                .workspace = workspace,
-                .geometryUnchanged = exact->representative.configGeneration == configStore().generation(),
-            });
+          if (ScrollingLayout* scrolling = workspace->scrollingLayout(); scrolling != nullptr) {
+            if (workspace->layoutConfig().tabs.singleGroup) {
+              View* active = workspace->focusedView();
+              if (active == nullptr || scrolling->columnOf(active) < 0) {
+                active = exactViews.empty() ? nullptr : exactViews.front();
+              }
+              scrolling->collapseToSingleGroup(active);
+            } else {
+              restoredViewports.push_back({
+                  .snapshot = exact->snapshot,
+                  .workspace = workspace,
+                  .geometryUnchanged = exact->representative.configGeneration == configStore().generation(),
+              });
+            }
           }
           workspace->markArrange(false);
         }
