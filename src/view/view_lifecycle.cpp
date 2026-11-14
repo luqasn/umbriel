@@ -1050,8 +1050,11 @@ namespace umbriel {
           );
         }
         const ResolvedLayoutConfig& openingLayout = target != nullptr ? target->layoutConfig() : globalConfig;
+        // A single-group workspace always shows the arrival as a tab, so its group's bar reserve is already in the
+        // layout's initial size and no title bar is drawn over it.
         const bool opensTabbed = openingLayout.tabs.defaultDisplay == ColumnDisplay::Tabbed
-            || rule.defaultColumnDisplay.value_or(ColumnDisplay::Normal) == ColumnDisplay::Tabbed;
+            || rule.defaultColumnDisplay.value_or(ColumnDisplay::Normal) == ColumnDisplay::Tabbed
+            || (openingLayout.mode == LayoutMode::Scrolling && openingLayout.tabs.singleGroup);
         if (!wantMaximizeToEdges
             && wantsTitleBar(rule.titleBar.value_or(config().appearance.titleBar.mode))
             && !opensTabbed) {

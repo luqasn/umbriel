@@ -70,6 +70,9 @@ namespace umbriel {
     TabBarPoint pointAt(double localX, double localY) const;
     // Where a window dropped at a point in the bar's own coordinates joins the tabs.
     TabBarDrop dropAt(double localX, double localY) const;
+    // The marker between the slots where a window joining at `row` shows, in the bar's own coordinates. A row outside
+    // the strip the bar shows marks that strip's end.
+    wlr_box markerForRow(size_t row) const;
 
     void layout(const ViewChromeGeometry& geometry) override;
     void setFocused(bool focused) override;

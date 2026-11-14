@@ -3,7 +3,10 @@
 #include "layout/layout.h"
 
 #include <array>
+#include <functional>
 #include <optional>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 struct wlr_box;
@@ -35,7 +38,27 @@ namespace umbriel {
     int columnWidth(int columnIndex, int viewportPrimary) const;
     bool setWidthFromPixels(int columnIndex, int viewportPrimary, int width);
     bool isFullWidth(int columnIndex) const override;
-    int maxScroll(int viewportPrimary) const { return std::max(0, totalWidth(viewportPrimary) - viewportPrimary); }
+    // Whether this workspace keeps every tiled window in one group filling the layout area.
+    bool singleGroupEnabled() const;
+
+    struct NamedColumnPlacement {
+      size_t column = 0;
+      int row = 0;
+    };
+    // Reads the name and order a view carries. The Workspace supplies it because layout/ treats View as opaque.
+    struct NamedColumnFacts {
+      std::optional<std::string_view> name;
+      std::optional<int> order;
+    };
+    using NamedColumnFactsFn = std::function<NamedColumnFacts(const View*)>;
+    // Where a view called `name` would join: the column holding an existing member, before the first member ordered
+    // after `order`. Nothing in a single-group workspace, which has no named column.
+    std::optional<NamedColumnPlacement> namedColumnPlacement(
+        const View* joining, std::string_view name, std::optional<int> order, const NamedColumnFactsFn& facts
+    ) const;
+    int maxScroll(int viewportPrimary) const {
+      return singleGroupEnabled() ? 0 : std::max(0, totalWidth(viewportPrimary) - viewportPrimary);
+    }
     // Scroll offsets where a strip gesture can rest on `columnIndex`: flush with the viewport's leading and trailing
     // edges, within [0, maxScroll]. A column at least as wide as the viewport (fullscreen, maximize-to-edges) overhangs
     // it by an edge pad on each side, so both are the offset covering the viewport, as ensureVisible places it.
@@ -43,6 +66,8 @@ namespace umbriel {
 
     void insertView(View* view, int columnIndex) override;
     void insertViewIntoColumn(View* view, int columnIndex, int rowIndex) override;
+    std::optional<View*> focusHorizontalLeaf(const View* view, int direction) const override;
+    std::optional<View*> focusVerticalLeaf(const View* view, int direction) const override;
     bool consume(View* view, int direction) override;
     bool expel(View* view, int direction) override;
     bool consumeFrom(View* view, int direction) override;
@@ -114,6 +139,9 @@ namespace umbriel {
     // Restore the tab groups of a column rebuilt row by row, replacing its initial display mode.
     // False when `tabs` reaches past the column's rows.
     bool adoptTabs(int columnIndex, const ColumnTabs& tabs);
+    // Merge every column, in strip order and each top to bottom, into one group filling the workspace. Inner tab
+    // groups flatten, per-group bar overrides drop, and `active` becomes the shown tab when it is in the layout.
+    void collapseToSingleGroup(View* active);
 
   private:
     struct Target {
@@ -126,6 +154,10 @@ namespace umbriel {
 
     int totalWidth(int viewportPrimary) const;
     int rawTotalWidth(int viewportPrimary) const;
+    // Adds `view` to the single column's tab group, at `row` when it lies inside the group, else where new tabs go.
+    bool joinSingleGroup(View* view, std::optional<size_t> row);
+    // Gives the single group the whole content area, less its bar.
+    void arrangeSingleGroup(const wlr_box& usable, int viewportPrimary, int availableCross);
     int centeringOffset(int viewportPrimary) const;
     double centeredScroll(int columnIndex, int viewportPrimary) const;
     double targetScrollForEnsureVisible(int columnIndex, int viewportPrimary, bool center, bool force = false) const;

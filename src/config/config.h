@@ -122,6 +122,7 @@ namespace umbriel {
       std::optional<bool> wrapFocus;
       std::optional<bool> scrollSwitchesTabs;
       std::optional<bool> middleClickCloses;
+      std::optional<bool> singleGroup;
       bool operator==(const Tabs&) const = default;
     } tabs;
 
@@ -187,6 +188,8 @@ namespace umbriel {
       bool wrapFocus = true;
       bool scrollSwitchesTabs = true;
       bool middleClickCloses = false;
+      // The scrolling layout holds every window of the workspace in one tab group filling the layout area.
+      bool singleGroup = false;
       // Derived from [appearance.tab_bar]; set by resolve function. The bar's space is part of the layout.
       int barHeight = 24;
       // [appearance.tab_bar] gap, or the layout gap when that is -1.
@@ -1094,6 +1097,7 @@ namespace umbriel {
         bool wrapFocus = true;
         bool scrollSwitchesTabs = true;
         bool middleClickCloses = false;
+        bool singleGroup = false;
         bool operator==(const Tabs&) const = default;
       } tabs;
       bool operator==(const Layout&) const = default;

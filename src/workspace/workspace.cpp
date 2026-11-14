@@ -67,47 +67,22 @@ namespace umbriel {
       };
     }
 
-    struct NamedScrollingColumnPlacement {
-      size_t column = 0;
-      int row = 0;
-    };
+    using NamedScrollingColumnPlacement = ScrollingLayout::NamedColumnPlacement;
+
+    ScrollingLayout::NamedColumnFacts namedScrollingColumnFacts(const View* view) {
+      if (view == nullptr || !view->namedScrollingColumnName()) {
+        return {};
+      }
+      return {
+          .name = std::string_view(*view->namedScrollingColumnName()),
+          .order = view->namedScrollingColumnOrder(),
+      };
+    }
 
     std::optional<NamedScrollingColumnPlacement> namedScrollingColumnPlacement(
         const ScrollingLayout& layout, const View* joining, std::string_view name, std::optional<int> order
     ) {
-      if (name.empty()) {
-        return std::nullopt;
-      }
-      const auto& columns = layout.columns();
-      for (size_t columnIndex = 0; columnIndex < columns.size(); ++columnIndex) {
-        const Column& column = columns[columnIndex];
-        const auto anchor = std::ranges::find_if(column.views, [&](const View* existing) {
-          return existing != joining
-              && existing->namedScrollingColumnName()
-              && *existing->namedScrollingColumnName() == name;
-        });
-        if (anchor == column.views.end()) {
-          continue;
-        }
-
-        const auto before = order
-            ? std::ranges::find_if(
-                  column.views,
-                  [&](const View* existing) {
-                    const std::optional<int> existingOrder = existing->namedScrollingColumnOrder();
-                    return existing != joining
-                        && existing->namedScrollingColumnName()
-                        && *existing->namedScrollingColumnName() == name
-                        && (!existingOrder || *existingOrder > *order);
-                  }
-              )
-            : column.views.end();
-        return NamedScrollingColumnPlacement{
-            .column = columnIndex,
-            .row = static_cast<int>(std::distance(column.views.begin(), before)),
-        };
-      }
-      return std::nullopt;
+      return layout.namedColumnPlacement(joining, name, order, namedScrollingColumnFacts);
     }
 
     // Ordered members join the tab group at their insertion row, including either boundary.
@@ -303,6 +278,11 @@ namespace umbriel {
 
   bool Workspace::scrollingVertical() const {
     return scrollingLayout() != nullptr && m_layoutConfig.scrolling.direction == ScrollingDirection::Vertical;
+  }
+
+  bool Workspace::isSingleGroup() const {
+    const ScrollingLayout* scrolling = scrollingLayout();
+    return scrolling != nullptr && scrolling->singleGroupEnabled();
   }
 
   void Workspace::setActive(bool active) {
@@ -745,6 +725,7 @@ namespace umbriel {
         || !view->mapped()
         || !view->tiled()
         || scrolling == nullptr
+        || isSingleGroup()
         || !view->namedScrollingColumnName()) {
       return;
     }
@@ -2046,6 +2027,22 @@ namespace umbriel {
 
   bool Workspace::swapFocusedInDirection(bool horizontal, int direction) {
     flushArrange();
+    if (isSingleGroup()) {
+      if (m_focusedView == nullptr || !m_focusedView->tiled()) {
+        return false;
+      }
+      const int column = m_layout->columnOf(m_focusedView);
+      if (column < 0) {
+        return false;
+      }
+      View* neighbor = tabNeighbor(m_layout->columns()[static_cast<size_t>(column)], m_focusedView, direction, false);
+      if (neighbor == nullptr || !m_layout->swapViews(m_focusedView, neighbor)) {
+        return false;
+      }
+      markArrange();
+      ensureFocusedVisible();
+      return true;
+    }
     // Geometry only: the focus memory directional focus applies could pick a diagonal tile.
     std::vector<LayoutTarget> targets;
     for (const Column& column : m_layout->columns()) {
@@ -2152,6 +2149,10 @@ namespace umbriel {
   }
 
   bool Workspace::moveFocusedColumn(int direction) {
+    // A single-group workspace has one column, so a column move has nowhere to go.
+    if (isSingleGroup()) {
+      return false;
+    }
     // Dwindle has no columns to carry, so a column move is the window move.
     if (dwindleLayout() != nullptr) {
       return (m_focusedView == nullptr || !m_focusedView->floating()) && moveFocusedHorizontal(direction);
@@ -2159,9 +2160,23 @@ namespace umbriel {
     return scrollingVertical() ? moveWithinLane(direction) : moveLaneAlongStrip(direction);
   }
 
+  bool Workspace::moveSingleGroupTab(int direction) {
+    if (m_focusedView == nullptr || !m_focusedView->tiled()) {
+      return false;
+    }
+    if (!m_layout->moveViewVertical(m_focusedView, direction)) {
+      return false;
+    }
+    markArrange();
+    return true;
+  }
+
   bool Workspace::moveFocusedHorizontal(int direction) {
     if (m_focusedView != nullptr && m_focusedView->floating()) {
       return m_focusedView->moveFloatingToEdge(direction < 0 ? WLR_EDGE_LEFT : WLR_EDGE_RIGHT);
+    }
+    if (isSingleGroup()) {
+      return moveSingleGroupTab(direction);
     }
     if (DwindleLayout* dwindle = dwindleLayout()) {
       if (!dwindle->moveView(m_focusedView, true, direction)) {
@@ -2180,10 +2195,16 @@ namespace umbriel {
     if (m_focusedView != nullptr && m_focusedView->floating()) {
       return m_focusedView->moveFloatingToEdge(direction < 0 ? WLR_EDGE_TOP : WLR_EDGE_BOTTOM);
     }
+    if (isSingleGroup()) {
+      return moveSingleGroupTab(direction);
+    }
     return scrollingVertical() ? moveLaneAlongStrip(direction) : moveWithinLane(direction);
   }
 
   bool Workspace::moveFocusedColumnFirst() {
+    if (isSingleGroup()) {
+      return false;
+    }
     if (m_focusedView == nullptr) {
       return false;
     }
@@ -2198,6 +2219,9 @@ namespace umbriel {
   }
 
   bool Workspace::moveFocusedColumnLast() {
+    if (isSingleGroup()) {
+      return false;
+    }
     if (m_focusedView == nullptr) {
       return false;
     }
@@ -2237,6 +2261,9 @@ namespace umbriel {
       const double current = presetSnappedFraction(presets, (*axis)[0], (*axis)[1]);
       return resizeFocusedFloating(nextFractionPreset(presets, current, direction), std::nullopt);
     }
+    if (isSingleGroup()) {
+      return false;
+    }
     if (m_focusedView != nullptr && m_focusedView->maximizedToEdges()) {
       m_focusedView->setMaximizedToEdges(false);
     }
@@ -2260,6 +2287,9 @@ namespace umbriel {
       const double current = presetSnappedFraction(presets, (*axis)[0], (*axis)[1]);
       return resizeFocusedFloating(std::nullopt, nextFractionPreset(presets, current, direction));
     }
+    if (isSingleGroup()) {
+      return false;
+    }
     if (m_focusedView != nullptr && m_focusedView->maximizedToEdges()) {
       m_focusedView->setMaximizedToEdges(false);
     }
@@ -2280,6 +2310,9 @@ namespace umbriel {
     if (m_focusedView != nullptr && m_focusedView->floating()) {
       return resizeFocusedFloating(std::clamp(fraction, 0.1, 1.0), std::nullopt);
     }
+    if (isSingleGroup()) {
+      return false;
+    }
     if (m_focusedView != nullptr && m_focusedView->maximizedToEdges()) {
       m_focusedView->setMaximizedToEdges(false);
     }
@@ -2296,6 +2329,9 @@ namespace umbriel {
   bool Workspace::setFocusedHeight(double fraction) {
     if (m_focusedView != nullptr && m_focusedView->floating()) {
       return resizeFocusedFloating(std::nullopt, std::clamp(fraction, 0.1, 1.0));
+    }
+    if (isSingleGroup()) {
+      return false;
     }
     if (m_focusedView != nullptr && m_focusedView->maximizedToEdges()) {
       m_focusedView->setMaximizedToEdges(false);
@@ -2414,6 +2450,11 @@ namespace umbriel {
     const int column = m_layout->columnOf(m_focusedView);
     if (column < 0) {
       return false;
+    }
+    if (isSingleGroup()) {
+      // The group already fills the layout area, so only the state changes; a width toggle would refuse.
+      m_focusedView->toggleMaximized();
+      return true;
     }
     const bool fullWidth = m_layout->toggleFullWidth(column);
     m_focusedView->setMaximizedState(fullWidth);
@@ -2718,6 +2759,8 @@ namespace umbriel {
         (m_layoutMode == LayoutMode::Scrolling && layoutConfig.mode != LayoutMode::Scrolling);
     const bool isMovingToScroll = (m_layoutMode != LayoutMode::Scrolling && layoutConfig.mode == LayoutMode::Scrolling);
     const bool fromStacking = m_layoutMode == LayoutMode::Stacking;
+    const bool singleGroupTurnedOn =
+        m_layoutMode == LayoutMode::Scrolling && !m_layoutConfig.tabs.singleGroup && layoutConfig.tabs.singleGroup;
     m_layoutConfig = std::move(layoutConfig);
     // The event payload is built when the idle runs, so scheduling here reports the mode this call installs, whether
     // it reconfigures the existing layout or replaces it below.
@@ -2726,6 +2769,9 @@ namespace umbriel {
       m_layout->setConfig(&m_layoutConfig);
       m_layout->setConstraints(&viewLayoutConstraints);
       if (ScrollingLayout* scrolling = scrollingLayout(); scrolling != nullptr) {
+        if (singleGroupTurnedOn) {
+          scrolling->collapseToSingleGroup(m_focusedView);
+        }
         const int focusedColumn = m_focusedView != nullptr ? scrolling->columnOf(m_focusedView) : -1;
         const bool reconcile = centerFocusedChanged || strutsChanged || directionChanged;
         if (reconcile && focusedColumn >= 0) {
@@ -2775,6 +2821,11 @@ namespace umbriel {
     m_layout->setConstraints(&viewLayoutConstraints);
     for (View* view : tiledViews) {
       m_layout->insertView(view, static_cast<int>(m_layout->columns().size()));
+    }
+    if (ScrollingLayout* scrolling = scrollingLayout(); isSingleGroup()) {
+      // Replaying the members through insertion shows the first one. Collapse again so the mode switch and a config
+      // reload both leave the previously focused window as the active tab.
+      scrolling->collapseToSingleGroup(m_focusedView);
     }
     if (fromStacking) {
       const auto floats = m_floatingStack;
